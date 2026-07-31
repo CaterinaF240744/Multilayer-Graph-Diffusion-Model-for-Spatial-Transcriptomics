@@ -1,0 +1,16 @@
+{
+	"folders": [
+		{
+			"path": "python_files/experiments"
+		},
+		{
+			"path": "python_files/src"
+		},
+		{
+			"path": "python_files/tests"
+		},
+		{
+			"path": "multilayer-graph-diffusion-st/scripts"
+		}
+	]
+}

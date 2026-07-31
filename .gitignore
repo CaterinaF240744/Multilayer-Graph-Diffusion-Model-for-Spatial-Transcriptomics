@@ -1,0 +1,74 @@
+# Data files (download separately, do not commit)
+*.h5ad
+*.txt
+*.csv
+*.tsv
+*.h5
+*.loom
+*.pdf
+*.png
+*.svg
+*.jpg
+*.jpeg
+*.tar.gz
+data/V1_Mouse_Kidney/
+data/GSE182939/
+data/GSE107585_sc.h5ad
+
+# Keep .gitkeep files
+!**/.gitkeep
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Jupyter
+.ipynb_checkpoints/
+*.ipynb
+
+# Results (regenerate from code)
+results/figures/*
+results/tables/*
+!results/figures/.gitkeep
+!results/tables/.gitkeep
+
+# CellChat intermediate outputs
+cellchat_inputs/
+cellchat_outputs/
+
+# Patch scripts (one-time fixes, not part of the pipeline)
+patch_*.py
