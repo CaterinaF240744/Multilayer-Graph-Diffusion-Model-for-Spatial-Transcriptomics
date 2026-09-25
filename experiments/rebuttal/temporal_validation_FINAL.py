@@ -7,14 +7,6 @@ Compares the model's predicted compartment activation order against the
 real GSE182939 IRI time-course (sham, 4h, 12h, 48h, 6wk) using a
 threshold-free temporal-centroid estimator.
 
-This is the FINAL, pre-registered version. It supersedes
-temporal_validation_gse182939.py, which had four bugs (all fixed here):
-
-  6.1  D_H was set equal to D_D per macro-type (should be D_H=0.05 uniform).
-  6.2  Unstable threshold-based observed-activation estimator (replaced by
-       continuous temporal centroid).
-  6.3  Only 4 of 5 timepoints were used (48h was silently dropped).
-  6.4  Wrong dictionary key for KL divergence ("kl_divergence" vs "kl").
 
 Final pre-registered result:
     rho_s = -0.073, p = 0.830, n = 11
