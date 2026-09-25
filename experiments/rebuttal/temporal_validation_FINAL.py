@@ -27,7 +27,6 @@ from preprocess_compartments import (
 )
 
 # ── Pre-registered assertion: all 5 timepoints must be present ───────────
-# Bug 6.3 fix: an intermediate version silently dropped the 48h timepoint.
 # This assertion fails loudly if any of the 5 expected timepoints is missing.
 _REQUIRED_TIMEPOINTS = {"sham", "4h", "12h", "48h", "6wk"}
 _missing = _REQUIRED_TIMEPOINTS - set(SAMPLE_PATHS.keys())
@@ -40,15 +39,15 @@ assert not _missing, (
 # Real sampling times of GSE182939 (hours post-IRI; sham treated as t=0)
 TIMEPOINT_HOURS = {"sham": 0, "4h": 4, "12h": 12, "48h": 48, "6wk": 24 * 42}
 
-# ── Bug 6.1 fix: D_H is uniform 0.05, NOT equal to D_D ──────────────────
+# ── D_H is uniform 0.05, NOT equal to D_D ──────────────────
 # The healthy state diffuses slowly and uniformly (structural inertia),
 # while the damage signal propagates faster and is cell-type-specific.
-# Using D_H == D_D (as in the buggy version) made the healthy state
+# Setting D_H == D_D would make the healthy state
 # diffuse 4-7x faster than intended, altering propagation dynamics.
 D_H_GLOBAL = 0.05  # uniform for all compartments (matches SIR_DEFAULTS["D_S"])
 
 # Baseline parameters from Table 1 of the manuscript.
-# D_D is per-macro-type; D_H is uniform (Bug 6.1 fix).
+# D_D is per-macro-type; D_H is uniform.
 TABLE1_PARAMS = {
     "PT":       dict(beta=0.40, rho=0.08, D_H=D_H_GLOBAL, D_D=0.20),
     "DCT":      dict(beta=0.28, rho=0.10, D_H=D_H_GLOBAL, D_D=0.20),
@@ -60,7 +59,7 @@ TABLE1_PARAMS = {
 
 # Runtime assertion: catch any regression where D_H == D_D for all types.
 assert any(p["D_H"] != p["D_D"] for p in TABLE1_PARAMS.values()), (
-    "D_H equals D_D for every macro-type -- reproduces a known bug. "
+
     "D_H should be 0.05 (uniform), D_D should be per-macro-type."
 )
 
@@ -113,7 +112,7 @@ def score_injury_markers_per_compartment(adata, markers=INJURY_MARKERS):
 def observed_temporal_centroid(injury_scores_by_timepoint):
     """
     Compute a continuous, threshold-free, injury-weighted temporal centroid
-    for each compartment across all timepoints (Bug 6.2 fix).
+    for each compartment across all timepoints.
 
     This replaces the original hard threshold-crossing criterion, which was
     numerically unstable: depending on small changes in the pipeline, it
@@ -171,7 +170,7 @@ def main():
     print("Building compartment graph from sham timepoint...")
     sham_result = run_pipeline(SAMPLE_PATHS["sham"], SC_REFERENCE_H5AD)
 
-    # Bug 6.4 fix: the key is "kl", not "kl_divergence"
+    
     kl = sham_result.get("kl", None)
     if kl is not None:
         print(f"  Label-transfer KL (sham): {kl:.3f}")
@@ -185,14 +184,14 @@ def main():
     traj = model.simulate(p_D0, t_end=60.0, dt=0.05)
     sim_metrics = model.metrics(traj)
 
-    # 3. Real injury-marker scores at every timepoint (all 5, Bug 6.3 fix)
+    # 3. Real injury-marker scores at every timepoint
     print("\nScoring injury markers at all 5 timepoints...")
     injury_scores = {}
     for tp, path in SAMPLE_PATHS.items():
         print(f"  Processing {tp}...")
         result = run_pipeline(path, SC_REFERENCE_H5AD)
 
-        # Bug 6.4 fix: the key is "kl", not "kl_divergence"
+        
         kl = result.get("kl", None)
         if kl is not None:
             status = "OK" if kl <= 0.5 else "WARNING"
@@ -200,7 +199,7 @@ def main():
 
         injury_scores[tp] = score_injury_markers_per_compartment(result["adata"])
 
-    # 4. Compute observed temporal centroid (Bug 6.2 fix: threshold-free)
+    # 4. Compute observed temporal centroid 
     obs_centroid = observed_temporal_centroid(injury_scores)
 
     # 5. Merge predicted vs. observed and compute rank correlation
