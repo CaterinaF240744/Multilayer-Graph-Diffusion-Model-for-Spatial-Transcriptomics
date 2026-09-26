@@ -18,7 +18,6 @@ All scripts are run from the repository root unless stated otherwise.
 |---|---|
 | `cellchat_full_transcriptome.R` | CellChat v2, spatially constrained (interaction.range 250 µm), on the **full-transcriptome** V1 Kidney matrix (32,285 genes; 913 L–R pairs). Main CellChat result (Table 15). |
 | `commot_full_transcriptome.py` | COMMOT on the same full-transcriptome matrix and labels (299 L–R pairs, 47 pathways); dis_thr 250 px (≈180 µm), sensitivity 150/400 px (≈110/290 µm). Table 15, Figure 12. |
-| `commot_comparisons.py` | Pre-specified comparisons: per-spot group means vs K_dyn and R_diff (exact permutation p), off-diagonal 3×3 vs K_dyn (Spearman + one-sided QAP, 10,000 permutations), COMMOT vs CellChat. |
 | `cellchat_analysis_spatial.R` | Same CellChat configuration on the 1,460-gene label-transfer panel (81/687 CellChatDB genes, 16 L–R pairs). **Superseded**; kept only for the panel-vs-full comparison (Table 16). |
 | `cellchat_analysis_nonspatial.R` | Non-spatial configuration used in an earlier version. **Not used in the manuscript**; kept for transparency. |
 | `export_data_for_cellchat.py` | Writes the panel exports (`v1_kidney_*`) and `data/rctd_io/`. |
