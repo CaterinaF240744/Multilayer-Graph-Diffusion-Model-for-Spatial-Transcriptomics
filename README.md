@@ -1,7 +1,6 @@
 # Multilayer Graph Diffusion Model for Spatial Transcriptomics
 
-A multilayer graph diffusion framework that models cell-cell interaction as an
-exposure-driven diffusion-reaction process from spatial transcriptomics data.
+A multilayer graph diffusion framework that simulates compartment-level perturbation propagation as an exposure-driven diffusion-reaction process on spatial graphs derived from spatial transcriptomics data.
 Applied to the V1 Mouse Kidney 10x Visium dataset in the context of
 ischaemia-reperfusion injury (IRI).
 
@@ -26,7 +25,7 @@ following an exposure-driven diffusion-reaction formulation.
 
 ### Key features
 
-- **Exposure-driven dynamics**: infection term is beta*H*lambda (not bilinear
+- **Exposure-driven dynamics**: activation term is beta*H*lambda (not bilinear
   beta*H*D), where lambda is the local disease exposure field
 - **Multilayer graph**: PT/DCT/TAL layers with node-to-node inter-layer coupling
   derived from spot-level kNN adjacency
