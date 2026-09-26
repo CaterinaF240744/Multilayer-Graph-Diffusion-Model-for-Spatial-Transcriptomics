@@ -12,14 +12,17 @@ All scripts are run from the repository root unless stated otherwise.
 | `sobol_gsa.py` | Global sensitivity analysis (Saltelli, N = 256 base samples, 2,816 evaluations, ±40% ranges) of the 9 kinetic parameters on the real V1 Kidney multilayer graph (18 compartments) | Sobol total-order indices table, rank-stability analysis |
 | `diagnose_model_first.py` | Staged diagnostic (oracle → blind annotation → full blind) locating the benchmark recovery bottleneck | Diagnostic supporting the variance-decomposition interpretation |
 
-## Orthogonal CellChat comparison (Section: cellchat validation)
+## Ligand–receptor comparison (Section 8.6: Tables 15–16, Figure 12)
 
 | Script | What it does |
 |---|---|
-| `cellchat_analysis_spatial.R` | CellChat v2 **spatially-constrained** re-inference (interaction.range 250 µm) on the V1 Kidney macro-type labels; produces the 16 significant LR pairs, sender/receiver roles, and the matrix-level comparison against the model proxy K_dyn (off-diagonal Spearman, QAP) |
-| `cellchat_analysis_nonspatial.R` | Non-spatial configuration of the CellChat analysis (no spatial constraint on neighbour detection); retained for comparison with the spatially-constrained version |
-| `compare_cellchat_vs_model.py` | Aggregates CellChat outputs and computes the model comparison statistics |
-| `export_data_for_cellchat.py` | Writes `v1_kidney_*` files and the `data/rctd_io/` export from the raw data + label transfer |
+| `cellchat_full_transcriptome.R` | CellChat v2, spatially constrained (interaction.range 250 µm), on the **full-transcriptome** V1 Kidney matrix (32,285 genes; 913 L–R pairs). Main CellChat result (Table 15). |
+| `commot_full_transcriptome.py` | COMMOT on the same full-transcriptome matrix and labels (299 L–R pairs, 47 pathways); dis_thr 250 px (≈180 µm), sensitivity 150/400 px (≈110/290 µm). Table 15, Figure 12. |
+| `commot_comparisons.py` | Pre-specified comparisons: per-spot group means vs K_dyn and R_diff (exact permutation p), off-diagonal 3×3 vs K_dyn (Spearman + one-sided QAP, 10,000 permutations), COMMOT vs CellChat. |
+| `cellchat_analysis_spatial.R` | Same CellChat configuration on the 1,460-gene label-transfer panel (81/687 CellChatDB genes, 16 L–R pairs). **Superseded**; kept only for the panel-vs-full comparison (Table 16). |
+| `cellchat_analysis_nonspatial.R` | Non-spatial configuration used in an earlier version. **Not used in the manuscript**; kept for transparency. |
+| `export_data_for_cellchat.py` | Writes the panel exports (`v1_kidney_*`) and `data/rctd_io/`. |
+
 
 ## Independent datasets
 
