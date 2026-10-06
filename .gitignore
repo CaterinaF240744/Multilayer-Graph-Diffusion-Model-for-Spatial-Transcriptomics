@@ -72,3 +72,4 @@ cellchat_outputs/
 
 # Patch scripts (one-time fixes, not part of the pipeline)
 patch_*.py
+*.code-workspace

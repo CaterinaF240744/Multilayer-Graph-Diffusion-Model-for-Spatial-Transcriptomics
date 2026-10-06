@@ -207,6 +207,15 @@ def step4_alignment(adata_sc, adata_st):
 
     adata_st2 = align_sc_st(adata_sc, adata_st, obs_key="cell_identity")
 
+    import os as _os
+    _lab_path = _os.environ.get("ANNOTATION_LABELS")
+    if _lab_path:
+        _lab = pd.read_csv(_lab_path, index_col=0)["cell_identity"].astype(str)
+        _common = [b for b in adata_st2.obs_names if b in _lab.index]
+        print(f"  [annotation] {len(_common)}/{adata_st2.n_obs} spots relabelled from {_lab_path}")
+        adata_st2 = adata_st2[_common].copy()
+        adata_st2.obs["cell_identity"] = _lab.loc[_common].values
+
     # Label transfer quality: KL divergence between distributions
     sc_dist = adata_sc.obs["cell_identity"].value_counts(normalize=True)
     st_dist = adata_st2.obs["cell_identity"].value_counts(normalize=True)
@@ -220,8 +229,15 @@ def step4_alignment(adata_sc, adata_st):
     sc.pl.spatial(adata_st2, color=["cell_identity"],
                   title=["Label transfer — tipo cellulare"])
 
+    import copy, os
+    from compartments import ZONE_MARKERS
+    _zm = copy.deepcopy(ZONE_MARKERS)
+    if os.environ.get("ZONING_NO_SLC12A3") == "1":
+        _zm["outer_medulla"] = [g for g in _zm["outer_medulla"] if g != "slc12a3"]
+        print("  [sensitivity] zoning without Slc12a3")
     comp = build_compartment2(
         adata_st2,
+        zone_markers=_zm,
         use_anatomical_zones=True,
         fallback_radial=True,
     )
@@ -510,6 +526,27 @@ tc_results = run_transcompartment_analysis(
 )
 print_transcompartment_summary(tc_results)
 
+import os as _os, json as _json
+if _os.environ.get("QUICK_EXPORT") == "1":
+    _tag = _os.environ.get("RUN_TAG", "run")
+    _out = f"../results/annotation_runs/{_tag}"
+    _os.makedirs(_out, exist_ok=True)
+    _m = ml_result["metrics"]
+    _json.dump(dict(tag=_tag, global_inv_time=_m.get("global_inv_time"),
+                    most_vulnerable=_m.get("most_vulnerable"), by_layer=_m.get("by_layer"),
+                    spots_per_macro=adata_st2.obs["macro_type"].value_counts().to_dict()),
+               open(f"{_out}/summary.json", "w"), indent=1, default=str)
+    adata_st2.obs[["cell_identity", "macro_type"]].to_csv(f"{_out}/labels.csv")
+    import pickle as _pk
+    _pk.dump(dict(comp=comp, params=diff_params, adata=adata_st2),
+             open(f"{_out}/model_context.pkl", "wb"))
+
+    raise SystemExit(f"Quick export {_tag} completato")
+
+
+
+
+
 from fix_interlayer_flux import patch_interlayer_flux
 tc_results = patch_interlayer_flux(
     tc_results, ml_result["sol"], ml_result["net"], W_ml, diff_params
@@ -765,4 +802,7 @@ print("="*60)
 
 os.makedirs("./results/figures", exist_ok=True)
 init_from_compartments(comp)
-run_section7_analysis(save_dir="./results/figures", dpi=200)
+sec7 = run_section7_analysis(save_dir="./results/figures", dpi=200)
+
+from export_tables import export_all
+export_all(globals(), out_dir="../results/manuscript_tables")

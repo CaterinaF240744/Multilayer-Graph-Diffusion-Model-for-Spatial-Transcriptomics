@@ -28,7 +28,7 @@ meta_path <- file.path(data_dir, "v1_kidney_full_meta.csv") # must contain: barc
 coords_path <- file.path(data_dir, "v1_kidney_full_coords.csv") # must contain: barcode, x, y
 genes_path <- file.path(data_dir, "v1_kidney_full_genes.csv")
 barcodes_path <- file.path(data_dir, "v1_kidney_full_barcodes.csv")
-out_dir <- if (length(args) >= 2) args[2] else "results/cellchat_full/"
+out_dir <- if (length(args) >= 2) args[2] else "results/cellchat_full_v2/"
 dir.create(out_dir, showWarnings = FALSE, recursive = TRUE)
 
 ## Approximate Visium center-to-center spot spacing in microns; use the SAME
@@ -40,6 +40,7 @@ VISIUM_SPOT_SPACING_UM <- 100
 ## 1. Load data
 ## ---------------------------------------------------------------------
 counts <- readMM(counts_path)
+counts <- as (counts, "CsparseMatrix")
 genes <- read.csv(genes_path, header = FALSE)$V1
 barcodes <- read.csv(barcodes_path, header = FALSE)$V1
 ## CellChatDB.mouse uses standard mouse gene symbol convention
@@ -47,7 +48,11 @@ barcodes <- read.csv(barcodes_path, header = FALSE)$V1
 ## genes were exported all-lowercase for SC/ST alignment consistency.
 ## Convert here so gene symbols match the database.
 capitalize_first <- function(x) paste0(toupper(substr(x, 1, 1)), substr(x, 2, nchar(x)))
-genes <- capitalize_first(as.character(genes))
+genes <- as.character(genes)
+db_sym <- unique(CellChatDB.mouse$geneInfo$Symbol)
+idx <- match(tolower(genes), tolower(db_sym))
+genes <- ifelse(is.na(idx), capitalize_first(genes), db_sym[idx])
+cat("Geni CellChatDB trovati nella matrice:", sum(genes %in% db_sym), "\n")
 rownames(counts) <- genes
 colnames(counts) <- as.character(barcodes)
 
@@ -73,7 +78,7 @@ counts <- counts[, keep_spots]
 coords <- coords[keep_spots, ]
 
 meta$macro_type <- factor(meta$macro_type,
- levels = keep_types)
+                          levels = keep_types)
 
 cat("Retained", length(keep_spots), "spots across", length(keep_types), "macro-types:\n")
 print(table(meta$macro_type))
@@ -98,9 +103,10 @@ print(table(meta$macro_type))
 ##            nominal 100 um Visium center-to-center spacing (137 px measured).
 ##   tol   = half the spot size in um (65/2 = 32.5), the robustness tolerance
 ##         used when comparing center-to-center distances against interaction.range.
-cellchat <- createCellChat(object = counts, meta = meta, group.by = "macro_type",
- datatype = "spatial", coordinates = coords,
- spatial.factors = list(ratio = 65 / 89.45675017406688, tol = 65 / 2))
+data.input <- normalizeData(counts)
+cellchat <- createCellChat(object = data.input, meta = meta, group.by = "macro_type",
+                           datatype = "spatial", coordinates = coords,
+                           spatial.factors = data.frame(ratio = 65 / 89.45675017406688, tol = 65 / 2))
 
 cellchat@DB <- CellChatDB.mouse
 cellchat <- subsetData(cellchat)
@@ -121,9 +127,9 @@ cellchat <- identifyOverExpressedInteractions(cellchat)
 ## (probability inversely proportional to spatial distance, hard cutoff at
 ## interaction.range), consistent with the diffusion model being validated.
 cellchat <- computeCommunProb(
- cellchat, type = "truncatedMean", trim = 0.1,
- distance.use = TRUE, interaction.range = VISIUM_SPOT_SPACING_UM * 2.5,
- scale.distance = 0.011, contact.dependent = FALSE
+  cellchat, type = "truncatedMean", trim = 0.1,
+  distance.use = TRUE, interaction.range = VISIUM_SPOT_SPACING_UM * 2.5,
+  scale.distance = 0.011, contact.dependent = FALSE
 )
 
 cellchat <- filterCommunication(cellchat, min.cells = 10)
@@ -134,8 +140,8 @@ cellchat <- aggregateNet(cellchat)
 ## manuscript figures (e.g. VEGF circle plot) can be regenerated/verified
 ## without re-running the inference.
 saveRDS(cellchat, file.path(out_dir, "cellchat_spatial.rds"))
-for (pw in names(cellchat@netP$weight)) {
-  write.csv(cellchat@netP$weight[[pw]],
+for (pw in cellchat@netP$pathways) {
+  write.csv(cellchat@netP$prob[, , pw],
             file.path(out_dir, paste0("pathway_weight_", pw, ".csv")))
 }
 
@@ -156,27 +162,27 @@ write.csv(net_count, file.path(out_dir, "cellchat_aggregated_count.csv"))
 ## silently producing an empty roles table -- but it now runs on the
 ## spatially-constrained network, not the non-spatial one.
 tryCatch(cellchat <- netAnalysis_computeCentrality(cellchat, slot.name = "netP"),
- error = function(e) cat("centrality failed (non-fatal):", conditionMessage(e), "\n"))
+         error = function(e) cat("centrality failed (non-fatal):", conditionMessage(e), "\n"))
 
 ## Outgoing (sender) and incoming (receiver) strength per macro-type,
 ## aggregated across all significant signalling pathways -- this is the
 ## quantity to correlate against the model's R_diff / K_dyn row-sums.
 centr <- slot(cellchat, "netP")$cent
 roles <- lapply(names(centr), function(pw) {
- data.frame(
- pathway = pw,
- macro_type = names(centr[[pw]]$outdeg),
- outgoing = centr[[pw]]$outdeg,
- incoming = centr[[pw]]$indeg
- )
+  data.frame(
+    pathway = pw,
+    macro_type = names(centr[[pw]]$outdeg),
+    outgoing = centr[[pw]]$outdeg,
+    incoming = centr[[pw]]$indeg
+  )
 })
 roles_df <- bind_rows(roles)
 
 roles_summary <- roles_df %>%
- group_by(macro_type) %>%
- summarise(outgoing_strength = sum(outgoing, na.rm = TRUE),
- incoming_strength = sum(incoming, na.rm = TRUE)) %>%
- arrange(desc(outgoing_strength))
+  group_by(macro_type) %>%
+  summarise(outgoing_strength = sum(outgoing, na.rm = TRUE),
+            incoming_strength = sum(incoming, na.rm = TRUE)) %>%
+  arrange(desc(outgoing_strength))
 
 write.csv(roles_summary, file.path(out_dir, "cellchat_signaling_roles.csv"), row.names = FALSE)
 
@@ -190,11 +196,11 @@ cat("Candidate biologically-relevant pathways detected by CellChat:\n")
 print(present_pathways)
 
 if (length(present_pathways) > 0) {
- pdf(file.path(out_dir, "cellchat_candidate_pathways_circle.pdf"))
- for (pw in present_pathways) {
- netVisual_aggregate(cellchat, signaling = pw, layout = "circle")
- }
- dev.off()
+  pdf(file.path(out_dir, "cellchat_candidate_pathways_circle.pdf"))
+  for (pw in present_pathways) {
+    netVisual_aggregate(cellchat, signaling = pw, layout = "circle")
+  }
+  dev.off()
 }
 
 cat("Done. Outputs written to:", out_dir, "\n")

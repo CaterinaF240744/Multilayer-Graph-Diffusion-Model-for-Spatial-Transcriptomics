@@ -1,20 +1,21 @@
-#!/usr/bin/env python
 """COMMOT on the full-transcriptome V1 Mouse Kidney Visium matrix (1,438 spots).
 
-Manuscript: Section 8.6 (Table 15, Figure 12).
+Manuscript: Section "Comparison with ligand-receptor communication inference"
+(Table lr-rankings, Figures fig:commot and fig:commot-compartment).
 
-NOTE ON UNITS: spot coordinates are used in full-resolution PIXELS. At
-0.7266 um/px, dis_thr = 150 / 250 / 400 correspond to ~110 / ~180 / ~290 um,
-which are the distances reported in the manuscript.
+NOTE ON UNITS: spot coordinates are in full-resolution PIXELS (0.7266 um/px).
+dis_thr = 250 px (~180 um) is the main threshold; 150, 344 and 400 px
+(~110, 250 and 290 um) are sensitivity analyses (344 px matches the CellChat
+interaction range of 250 um). The loop runs 250 last, so the saved .h5ad
+contains the main-threshold result.
 
-Usage (from repository root):
-  python experiments/rebuttal/commot_full_transcriptome.py [input_dir] [output_dir]
+Settings: normalize_total(1e4) + log1p; CellChatDB mouse (Secreted Signaling);
+filter min_cell_pct=0.05; spatial_communication(heteromeric=True,
+pathway_sum=True); cluster_communication(clustering='macro_type',
+n_permutations=1000, random_seed=0).
 
-Pre-specified settings (reviewer R2.5 protocol) — no tuning:
-  normalize_total(1e4) + log1p; CellChatDB mouse; filter min_cell_pct=0.05;
-  spatial_communication(dis_thr=250, heteromeric=True, pathway_sum=True);
-  cluster_communication(clustering='macro_type', n_permutations=1000, random_seed=0);
-  sensitivity dis_thr=150 and 400 (250 remains the main result).
+Usage (from repository root, environment "commot"):
+  python experiments/rebuttal/commot_full_transcriptome.py data/full_matrix_inputs results/commot_full_v2
 """
 import json, sys, time
 import numpy as np
@@ -55,7 +56,7 @@ print(f"pairs after min_cell_pct=0.05: {n_pairs} | pathways: {n_pathways}", flus
 
 from commot.tl import spatial_communication, cluster_communication
 results = {}
-for thr in [250, 150, 400]:
+for thr in [150, 344, 400, 250]:
     t = time.time()
     spatial_communication(adata, database_name="cellchat", df_ligrec=df_filtered,
                           dis_thr=thr, heteromeric=True, pathway_sum=True)
@@ -93,7 +94,7 @@ for thr in [250, 150, 400]:
 w = adata.uns.get("commot-cellchat-weights") if "commot-cellchat-weights" in adata.uns else None
 info = dict(n_pairs=int(n_pairs), n_pathways=(int(n_pathways) if n_pathways else None),
             versions=dict(python=sys.version.split()[0],
-                          commot=commot.__version__ if hasattr(commot, "__version__") else "0.0.3",
+                          commot=__import__("importlib.metadata", fromlist=["version"]).version("commot"),
                           scanpy=sc.__version__, anndata=ad.__version__,
                           numpy=np.__version__, pandas=pd.__version__),
             obsm_keys=[str(k) for k in adata.obsm.keys()],
