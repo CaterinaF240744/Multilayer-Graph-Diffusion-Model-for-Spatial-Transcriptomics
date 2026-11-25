@@ -687,7 +687,7 @@ def plot_interlayer_coupling(
     ax.set_xticks(range(C)); ax.set_yticks(range(C))
     ax.set_xticklabels(macros, fontsize=12)
     ax.set_yticklabels(macros, fontsize=12)
-    ax.set_title("Coupling inter-layer\n(W_off-diag · √D_I, normalizzato)",
+    ax.set_title("Coupling inter-layer\n(W_off-diag · κ, normalizzato)",
                  fontsize=12)
 
     thr = mat.mean()
@@ -762,7 +762,7 @@ def plot_multilayer_graph(
     Dimensione   = I final del compartimento
     Bordo rosso  = spot boundary/outer_medulla (seed)
     Archi grigi  = archi kNN intra-layer (alpha basso)
-    Archi azzurri= diffusione inter-layer (W_Wc2 · √D_I)
+    Archi azzurri= diffusione inter-layer (W_Wc2 · κ)
     """
     from matplotlib.lines import Line2D
 
@@ -1023,7 +1023,7 @@ def run_SIR_multilayer(
 
     # 2. Coupling inter-layer (da Wsp spot-level + D_I)
     print(f"\n  [2] Costruzione coupling inter-layer "
-          f"(Wsp spot-level · √D_I · D_inter={D_inter})...")
+          f"(Wsp spot-level · κ = D_inter = {D_inter})...")
     W_inter = build_interlayer_coupling(
         net, Wsp, inv2, sir_params,
         topology=INTERLAYER_TOPOLOGY,
