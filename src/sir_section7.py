@@ -297,15 +297,19 @@ def short(s):
 # SECTION 7.1 — EDGE IMPORTANCE MAPS
 # ═══════════════════════════════════════════════════════════════════════════
 
-def compute_edge_flux(t, pH_t, pD_t, W_raw, beta):
-    """Directed cumulative flux: Φ_{i→j} = β_i · w_{ij} · ∫ pD_i(t) · pH_j(t) dt"""
+def compute_edge_flux(t, pH_t, pD_t, W_raw, beta, W_exp=None):
+    """Directed cumulative flux, as in the dynamics (R3: receiver beta,
+    exposure matrix):  Phi_{i->j} = beta_j * w~_{ji} * int pD_i(t) pH_j(t) dt.
+    `weight` reports the raw edge weight w_ij for reference."""
+    if W_exp is None:
+        W_exp = _mc.row_normalise(W_raw)
     records = []
     for i, src in enumerate(COMPARTMENTS):
         for j, tgt in enumerate(COMPARTMENTS):
             w = W_raw[i, j]
             if w == 0:
                 continue
-            flux_t = beta[i] * w * pD_t[i, :] * pH_t[j, :]
+            flux_t = beta[j] * W_exp[j, i] * pD_t[i, :] * pH_t[j, :]
             flux = np.trapezoid(flux_t, t)
             etype = "intra" if MACRO_MAP[src] == MACRO_MAP[tgt] else "inter"
             records.append(dict(

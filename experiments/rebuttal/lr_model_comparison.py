@@ -61,7 +61,7 @@ with warnings.catch_warnings(), contextlib.redirect_stdout(io.StringIO()):
                             D_inter=0.01, t_end=60.0, n_steps=800, threshold_I=0.10, plot=False)
 gi = np.asarray(ml["net"]["global_index"])
 comps2 = np.asarray(comp["comps2"])
-W = sp.csr_matrix(comp["Wc2"])[np.ix_(gi, gi)]
+W = ml["E"]   # R3: exposure matrix actually simulated (was raw Wc2)
 S, I, t = _extract_SIR(ml["sol"])
 K_mac = next_generation_matrix_dynamic(S, I, t, W, np.asarray(ml["net"]["layer_of_global"]),
                                        params["beta"][gi]).loc[TYPES, TYPES]

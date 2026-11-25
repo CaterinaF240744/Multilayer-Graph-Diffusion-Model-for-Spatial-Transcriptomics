@@ -487,7 +487,9 @@ sol_ml       = ml_result["sol"]
 net          = ml_result["net"]
 global_index = net["global_index"]
 
-W_ml = sp.csr_matrix(comp["Wc2"])[np.ix_(global_index, global_index)]
+# R3: the exposure matrix actually simulated (blockdiag W~ + W_inter), in the
+# multilayer node order; before R3 the raw Wc2 was used here.
+W_ml = ml_result["E"]
 labels_ml    = net["layer_of_global"]
 beta_ml_vec  = diff_params["beta"][global_index]
 gamma_ml_vec = diff_params["gamma"][global_index]

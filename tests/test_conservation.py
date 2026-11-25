@@ -129,3 +129,26 @@ def test_section7_uses_case_study_params_and_sparse_W():
     ref = build_default_params_SIR(comps, macro, region)
     np.testing.assert_allclose(beta, ref["beta"]); np.testing.assert_allclose(rho, ref["gamma"])
     assert abs(beta[1] - 0.40 * 0.75) < 1e-12        # inner-medulla multiplier applied
+
+
+def test_K_dyn_attributes_infection_exactly(graph):
+    """R3 point 3: K_dyn uses the receiver's beta and the exposure matrix, so
+    its column sums equal the mass that left H in each receiving layer."""
+    import warnings as _w
+    from sir_transcompartment_metrics import (next_generation_matrix_dynamic,
+                                              source_sink_scores)
+    n = graph["n"]
+    E = mc.row_normalise(graph["W"])
+    tr = mc.simulate(E, graph["beta"], graph["rho"],
+                     mc.initial_state(n, graph["seed"], 0.05), 60, n_eval=3001)
+    labels = np.array(["A"] * 6 + ["B"] * 6 + ["C"] * (n - 12))
+    with _w.catch_warnings():
+        _w.simplefilter("error", RuntimeWarning)       # identity must hold
+        K = next_generation_matrix_dynamic(tr.pH.T, tr.pD.T, tr.t, E, labels,
+                                           graph["beta"])
+    lost = np.array([(tr.pH[labels == c, 0] - tr.pH[labels == c, -1]).sum()
+                     for c in K.columns])
+    np.testing.assert_allclose(K.values.sum(axis=0), lost, rtol=1e-3)
+    ss = source_sink_scores(K, labels)
+    np.testing.assert_allclose(ss["net_export"].sum(), 0, atol=1e-12)
+    assert set(["source_per_node", "sink_per_node", "inter_in", "inter_out"]) <= set(ss)

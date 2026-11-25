@@ -38,6 +38,7 @@ plot_source_sink       — scatter source vs sink
 
 from __future__ import annotations
 
+import warnings
 import numpy as np
 import pandas as pd
 import scipy.sparse as sp
@@ -84,6 +85,32 @@ def _to_dense(W) -> np.ndarray:
 # 1. DYNAMIC NEXT-GENERATION INVASION MATRIX  (vectorised)
 # ═══════════════════════════════════════════════════════════════════════════
 
+def _receiver_flux_blocks(S, I, t, E, labels, beta):
+    """Yield (ai, bi, integrand(t)) for the model's own transmission flux.
+
+    In the model (Eqs. 2-4) node j becomes diseased at rate
+        beta_j * p^H_j * lambda_j,   lambda_j = sum_i E_ji p^D_i,
+    so the flux from source i to receiver j is
+        F_{i->j}(t) = beta_j * E_ji * p^D_i(t) * p^H_j(t).
+    R3: before R3 the code used beta_i (source) and the raw adjacency W_ij,
+    i.e. a quantity that does not appear in the dynamics.
+    """
+    E = _to_dense(E)
+    N = E.shape[0]
+    beta_vec = (np.full(N, float(beta)) if np.isscalar(beta)
+                else np.asarray(beta, dtype=np.float64))
+    comps = np.unique(labels)
+    comp_idx = {c: np.where(labels == c)[0] for c in comps}
+    for ai, cA in enumerate(comps):
+        idx_A = comp_idx[cA]
+        I_A = I[:, idx_A]                                   # (T, |A|)
+        for bi, cB in enumerate(comps):
+            idx_B = comp_idx[cB]
+            E_BA = E[np.ix_(idx_B, idx_A)]                  # receiver rows
+            bS_B = S[:, idx_B] * beta_vec[idx_B][None, :]   # (T, |B|)
+            yield ai, bi, ((I_A @ E_BA.T) * bS_B).sum(axis=1)
+
+
 def next_generation_matrix_dynamic(
     S:      np.ndarray,
     I:      np.ndarray,
@@ -91,59 +118,35 @@ def next_generation_matrix_dynamic(
     W,
     labels: np.ndarray,
     beta,
+    check:  bool = True,
 ) -> pd.DataFrame:
     """
-    Compartment-to-compartment invasion matrix integrated over time.
+    Compartment-to-compartment transmission matrix integrated over time.
 
-        K_AB^dyn = ∫_0^T  Σ_{i∈A} Σ_{j∈B}  β_i · W_ij · S_j(t) · I_i(t)  dt
+        K_AB = int_0^T  sum_{i in A} sum_{j in B}  beta_j E_ji p^D_i(t) p^H_j(t) dt
 
-    Vectorised implementation: no Python loop over time steps.
-    Complexity O(T · C²) using einsum aggregation.
+    W must be the EXPOSURE matrix E used in the simulation (row j = receiver),
+    e.g. blockdiag(W~[alpha]) + W_inter for the multilayer model, and beta the
+    per-node susceptibility. K_AB is then an exact attribution of the infection
+    that occurred in B to its sources: sum_A K_AB = sum_{j in B}
+    (p^H_j(0) - p^H_j(T)). This identity is checked when check=True.
 
-    Parameters
-    ----------
-    S, I   : (T, N) arrays
-    t      : (T,) time vector
-    W      : (N, N) adjacency (sparse or dense)
-    labels : (N,) compartment label per node
-    beta   : float scalar OR ndarray (N,) per-node infection rate
-
-    Returns
-    -------
-    pd.DataFrame (C, C)  rows = source, columns = target
+    Returns pd.DataFrame (C, C), rows = source, columns = receiver.
     """
-    W = _to_dense(W)
-    comps   = np.unique(labels)
-    C       = len(comps)
-    comp_idx = {c: np.where(labels == c)[0] for c in comps}
-    T        = len(t)
-
-    # Per-node beta vector
-    if np.isscalar(beta):
-        beta_vec = np.full(W.shape[0], float(beta))
-    else:
-        beta_vec = np.asarray(beta, dtype=np.float64)
-
+    comps = np.unique(labels)
+    C = len(comps)
     K = np.zeros((C, C), dtype=np.float64)
-
-    for ai, cA in enumerate(comps):
-        idx_A = comp_idx[cA]
-        # Weighted infected: β_i · I_i(t) for i ∈ A → (T, |A|)
-        bI_A  = I[:, idx_A] * beta_vec[idx_A][None, :]
-
-        for bi, cB in enumerate(comps):
-            idx_B = comp_idx[cB]
-            W_AB  = W[np.ix_(idx_A, idx_B)]   # (|A|, |B|)
-
-            # integrand(t) = Σ_{i∈A} Σ_{j∈B} β_i W_ij I_i(t) S_j(t)
-            # = (bI_A(t,:) @ W_AB) · S_B(t,:)  summed over j
-            # shape: (T, |A|) @ (|A|, |B|) = (T, |B|), then * S_B → (T,|B|) sum
-            S_B     = S[:, idx_B]               # (T, |B|)
-            product = (bI_A @ W_AB) * S_B       # (T, |B|)
-            integrand = product.sum(axis=1)      # (T,)
-
-            K[ai, bi] = _trapz(integrand, t)
-
+    for ai, bi, integrand in _receiver_flux_blocks(S, I, t, W, labels, beta):
+        K[ai, bi] = _trapz(integrand, t)
+    if check:
+        lost_H = np.array([(S[0, labels == c] - S[-1, labels == c]).sum()
+                           for c in comps])
+        err = np.abs(K.sum(axis=0) - lost_H) / np.maximum(lost_H, 1e-12)
+        if np.max(err) > 0.02:   # trapezoid error on the output grid
+            warnings.warn(
+                "K_dyn column sums differ from the infected mass by up to "
+                f"{100*np.max(err):.1f}%: is W the exposure matrix used in "
+                "the simulation? Increase n_steps if it is.", RuntimeWarning)
     return pd.DataFrame(K, index=comps, columns=comps)
 
 
@@ -171,9 +174,12 @@ def structural_invasion_matrix(
     """
     Static next-generation matrix with per-node or scalar β, γ.
 
-    For each pair (A, B):
+    For each pair (A, B) (R3: receiver susceptibility, source recovery):
 
-        K_AB = Σ_{i∈A} Σ_{j∈B}  (β_i / γ_i) · W_ij
+        K_AB = Σ_{i∈A} Σ_{j∈B}  β_j · E_ji / γ_i
+
+    i.e. new infections caused in B by one unit of disease in A over its
+    mean infectious period 1/γ_i. W must be the exposure matrix E.
 
     When beta/gamma are scalars the formula reduces to the original
         K_AB = (β/γ) · Σ_{i∈A} Σ_{j∈B} W_ij
@@ -203,7 +209,7 @@ def structural_invasion_matrix(
     else:
         gamma_vec = np.asarray(gamma, dtype=np.float64)
 
-    R0_vec = beta_vec / np.where(gamma_vec > 0, gamma_vec, 1e-12)  # (N,)
+    inv_gamma = 1.0 / np.where(gamma_vec > 0, gamma_vec, 1e-12)   # (N,)
 
     comps    = np.unique(labels)
     C        = len(comps)
@@ -212,12 +218,10 @@ def structural_invasion_matrix(
     K = np.zeros((C, C), dtype=np.float64)
     for ai, cA in enumerate(comps):
         idx_A  = comp_idx[cA]
-        R0_A   = R0_vec[idx_A]           # (|A|,)
         for bi, cB in enumerate(comps):
             idx_B  = comp_idx[cB]
-            W_AB   = W[np.ix_(idx_A, idx_B)]   # (|A|, |B|)
-            # K_AB = Σ_i R0_i · Σ_j W_ij  =  R0_A @ W_AB.sum(axis=1)
-            K[ai, bi] = (R0_A * W_AB.sum(axis=1)).sum()
+            E_BA   = W[np.ix_(idx_B, idx_A)]   # receiver rows (|B|, |A|)
+            K[ai, bi] = float(beta_vec[idx_B] @ E_BA @ inv_gamma[idx_A])
 
     row_totals = K.sum(axis=1, keepdims=True)
     K_norm     = np.where(row_totals > 0, K / row_totals, 0.0)
@@ -231,24 +235,38 @@ def structural_invasion_matrix(
 # 3. SOURCE AND SINK SCORES
 # ═══════════════════════════════════════════════════════════════════════════
 
-def source_sink_scores(K_df: pd.DataFrame) -> pd.DataFrame:
+def source_sink_scores(K_df: pd.DataFrame, labels=None) -> pd.DataFrame:
     """
-    Per-compartment source and sink strengths from any invasion matrix.
+    Per-compartment source and receiver strengths from a transmission matrix.
 
-        Source(A) = Σ_B K_AB   (row sum)
-        Sink(B)   = Σ_A K_AB   (column sum)
+        Source(A) = Σ_B K_AB   (row sum: infection A causes, incl. itself)
+        Sink(B)   = Σ_A K_AB   (column sum: infection B receives)
 
-    Returns
-    -------
-    pd.DataFrame with columns: compartment, source_strength, sink_strength
+    R3 additions (labels = node labels, to normalise by layer size):
+        *_per_node   : the same divided by the number of nodes in the layer
+        inter_out    : Σ_{B≠A} K_AB   (exported to other layers)
+        inter_in     : Σ_{B≠A} K_BA   (imported from other layers)
+        net_export   : inter_out - inter_in  (> 0 net exporter, < 0 net
+                       importer). A net importer is a RECEIVER; it is an
+                       absorber only if it also attenuates onward spread
+                       (local R_diff < 1), which no tubular layer does.
     """
-    source = K_df.sum(axis=1)
-    sink   = K_df.sum(axis=0)
-    return pd.DataFrame({
+    K = K_df.values
+    off = K - np.diag(np.diag(K))
+    out = pd.DataFrame({
         "compartment":     K_df.index,
-        "source_strength": source.values,
-        "sink_strength":   sink.values,
-    }).reset_index(drop=True)
+        "source_strength": K.sum(axis=1),
+        "sink_strength":   K.sum(axis=0),
+        "inter_out":       off.sum(axis=1),
+        "inter_in":        off.sum(axis=0),
+    })
+    out["net_export"] = out["inter_out"] - out["inter_in"]
+    if labels is not None:
+        n = pd.Series(np.asarray(labels)).value_counts()
+        out["n_nodes"] = out["compartment"].map(n).values
+        out["source_per_node"] = out["source_strength"] / out["n_nodes"]
+        out["sink_per_node"] = out["sink_strength"] / out["n_nodes"]
+    return out.reset_index(drop=True)
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -383,7 +401,8 @@ def cross_compartment_flux(
     """
     Instantaneous and integrated flux between compartments.
 
-        F_{A→B}(t) = Σ_{i∈A} Σ_{j∈B} β_i · W_ij · S_j(t) · I_i(t)
+        F_{A→B}(t) = Σ_{i∈A} Σ_{j∈B} β_j · E_ji · S_j(t) · I_i(t)
+    (R3: receiver β and exposure matrix E, as in the dynamics.)
 
     Vectorised over T using einsum.
 
@@ -395,30 +414,11 @@ def cross_compartment_flux(
     -------
     dict: flux (T,C,C), integrated pd.DataFrame (C,C), t, compartments
     """
-    W = _to_dense(W)
-    N = W.shape[0]
-
-    if np.isscalar(beta):
-        beta_vec = np.full(N, float(beta))
-    else:
-        beta_vec = np.asarray(beta, dtype=np.float64)
-
-    comps    = np.unique(labels)
-    C        = len(comps)
-    comp_idx = {c: np.where(labels == c)[0] for c in comps}
-    T        = len(t)
-
-    flux = np.zeros((T, C, C), dtype=np.float64)
-    for ai, cA in enumerate(comps):
-        idx_A = comp_idx[cA]
-        bI_A  = I[:, idx_A] * beta_vec[idx_A][None, :]   # (T, |A|)
-        for bi, cB in enumerate(comps):
-            idx_B = comp_idx[cB]
-            W_AB  = W[np.ix_(idx_A, idx_B)]   # (|A|, |B|)
-            S_B   = S[:, idx_B]               # (T, |B|)
-            # (T,|A|) @ (|A|,|B|) = (T,|B|), then * S_B → (T,|B|) sum
-            flux[:, ai, bi] = ((bI_A @ W_AB) * S_B).sum(axis=1)
-
+    comps = np.unique(labels)
+    C, T  = len(comps), len(t)
+    flux  = np.zeros((T, C, C), dtype=np.float64)
+    for ai, bi, integrand in _receiver_flux_blocks(S, I, t, W, labels, beta):
+        flux[:, ai, bi] = integrand
     integrated    = _trapz(flux, t, axis=0)
     integrated_df = pd.DataFrame(integrated, index=comps, columns=comps)
 
@@ -607,7 +607,7 @@ def run_transcompartment_analysis(
     K_struct, K_norm = structural_invasion_matrix(W, labels, beta, gamma)
 
     print("Computing source / sink scores …")
-    ss = source_sink_scores(K_dyn)
+    ss = source_sink_scores(K_dyn, labels)
 
     print("Computing retention / dispersal …")
     rd = retention_dispersal(K_dyn)

@@ -968,7 +968,7 @@ def run_SIR_multilayer(
     sir_params:  dict,
     adata_st,
     seed_I:      float = 0.05,
-    D_inter:     float = 0.05,
+    D_inter:     float = 0.01,   # R3 nominal kappa
     t_end:       float = 50.0,
     n_steps:     int   = 500,
     macros:      tuple = MULTILAYER_MACROS,
@@ -1090,6 +1090,10 @@ def run_SIR_multilayer(
 
     return dict(
         net          = net,
+        E            = _mc.multilayer_exposure(          # R3: exposure used
+            [(net["node_ranges"][m][0], net["node_ranges"][m][1],
+              net["layers"][m]["W_tilde"]) for m in net["layers"]],
+            W_inter, net["n_total"]),
         W_inter      = W_inter,
         interlayer_w = interlayer_w,
         S_fin        = S_fin,
