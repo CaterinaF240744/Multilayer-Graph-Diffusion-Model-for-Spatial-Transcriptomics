@@ -5,7 +5,14 @@
 #
 # Usage (repository root, data in data/ as described in data/data_README.md):
 #   bash experiments/r3/regenerate_all.sh            # Python analyses
-#   WITH_R=1 bash experiments/r3/regenerate_all.sh   # also RCTD / CellChat steps
+#   WITH_R=1 bash experiments/r3/regenerate_all.sh   # also RCTD / cell2location / L-R
+#   WITH_R=1 FROM=20 bash experiments/r3/regenerate_all.sh
+#       resume from step 20 (skips every step whose name sorts before "20")
+#
+# The annotation steps run in their own environments, as in R2
+# (experiments/rebuttal/rebuttal_README.md, section 3). Override if needed:
+#   RCTD_RSCRIPT  (default ~/miniforge3/envs/rctd/bin/Rscript)
+#   C2L_PYTHON    (default ~/miniforge3/envs/c2l/bin/python)
 #
 # Everything is logged under results/r3/<commit>/ ; the commit hash and
 # package versions are written next to the outputs. Refuses to run on a dirty
@@ -24,8 +31,13 @@ git rev-parse HEAD > "$OUT/COMMIT"
 python -m pip freeze > "$OUT/pip_freeze.txt"
 export MPLBACKEND=Agg PYTHONWARNINGS="ignore::DeprecationWarning"
 
+FROM=${FROM:-}
+RCTD_RSCRIPT=${RCTD_RSCRIPT:-$HOME/miniforge3/envs/rctd/bin/Rscript}
+C2L_PYTHON=${C2L_PYTHON:-$HOME/miniforge3/envs/c2l/bin/python}
+
 step () {  # step <name> <command...>
   local name=$1; shift
+  if [ -n "$FROM" ] && [[ "$name" < "$FROM" ]]; then echo "--- skip $name"; return; fi
   echo "==> $name"
   ( "$@" ) > "$OUT/logs/$name.log" 2>&1 || { echo "FAILED: $name (see $OUT/logs/$name.log)"; exit 1; }
 }
@@ -53,14 +65,20 @@ step 14_generality    python experiments/rebuttal/generality_second_tissue.py
 
 if [ "${WITH_R:-0}" = "1" ]; then
   step 20_annot_export  python experiments/rebuttal/export_annotation_inputs.py
-  step 21_rctd_mouse    Rscript experiments/rebuttal/run_rctd_mouse.R
-  step 22_c2l           python experiments/rebuttal/run_c2l.py
+  for b in "$RCTD_RSCRIPT" "$C2L_PYTHON"; do
+    [ -x "$b" ] || { echo "Not found: $b (set RCTD_RSCRIPT / C2L_PYTHON)" >&2; exit 1; }
+  done
+  step 21_rctd_mouse    "$RCTD_RSCRIPT" experiments/rebuttal/run_rctd_mouse.R
+  step 22_c2l           "$C2L_PYTHON" experiments/rebuttal/run_c2l.py
   step 23_annot_prepare python experiments/rebuttal/compare_annotations.py prepare
   for t in rctd c2l consensus; do
-    step 24_annot_$t env QUICK_EXPORT=1 RUN_TAG=$t \
+    tag=$(echo "$t" | sed 's/rctd/RCTD/')          # tags expected by compare_annotations
+    step 24_annot_$t env QUICK_EXPORT=1 RUN_TAG=$tag \
       ANNOTATION_LABELS="$PWD/results/annotation/labels_for_sim_$t.csv" python experiments/run_main.py
   done
   step 25_annot_summary python experiments/rebuttal/compare_annotations.py summarize   # single source for Table 13
+  # Needs the L-R inferences of R2 (they do not depend on the model):
+  # results/cellchat_full_v2/ and results/commot_full_v2/
   step 30_lr_compare    python experiments/rebuttal/lr_model_comparison.py
 fi
 
