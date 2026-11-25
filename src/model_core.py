@@ -41,7 +41,10 @@ import numpy as np
 import scipy.sparse as sp
 from scipy.integrate import solve_ivp
 
-SIMPLEX_TOL = 1e-8          # max |sum - 1| and max negative excursion allowed
+SIMPLEX_TOL = 1e-8          # floor for max |sum - 1| and max negative excursion
+# The actual tolerance used by simulate() is max(SIMPLEX_TOL, 100 * atol):
+# BDF preserves linear invariants up to the Newton-iteration error, which
+# scales with the solver tolerance (1e-7 with the canonical atol = 1e-9).
 DEFAULT_RTOL = 1e-6
 DEFAULT_ATOL = 1e-9
 
@@ -160,7 +163,8 @@ def simulate(E, beta, rho, y0, t_end: float, n_eval: int = 601,
                       RuntimeWarning, stacklevel=2)
     tr = Trajectory(sol.t, sol.y[:n], sol.y[n:2*n], sol.y[2*n:], sol)
     if check:
-        check_simplex(tr.pH, tr.pD, tr.pR, where=where)
+        check_simplex(tr.pH, tr.pD, tr.pR, tol=max(SIMPLEX_TOL, 100 * atol),
+                      where=where)
     return tr
 
 

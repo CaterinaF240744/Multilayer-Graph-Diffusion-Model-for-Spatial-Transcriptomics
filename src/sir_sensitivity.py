@@ -241,8 +241,10 @@ def _run_single(
         S_fin, I_fin, R_fin, sol = simulate_SIR_ivp(
             Lc2, S0, I0, R0, params,
             t_end=t_end, n_steps=n_steps, method="BDF",
-            rtol=1e-4, atol=1e-7,   # wider tolerances for speed
+            rtol=1e-6, atol=1e-9,   # R3: canonical tolerances (Methods)
         )
+    except AssertionError:
+        raise   # R3: a simplex violation must never be silently dropped as NaN
     except Exception as e:
         warnings.warn(f"Simulazione fallita: {e}", RuntimeWarning)
         return {m: np.nan for m in OUTPUT_METRICS}
@@ -604,7 +606,7 @@ def run_robustness_check(
     S_nom, I_nom, R_nom, sol_nom = simulate_SIR_ivp(
         Lc2, S0_nom, I0_nom, R0_nom, base_params,
         t_end=t_end, n_steps=n_steps, method="BDF",
-        rtol=1e-4, atol=1e-7,
+        rtol=1e-6, atol=1e-9,   # R3: canonical tolerances
     )
 
     I_traj_nom = sol_nom.y[nC:2*nC, :]
@@ -637,8 +639,10 @@ def run_robustness_check(
             S_i, I_i, R_i, sol_i = simulate_SIR_ivp(
                 Lc2, S0_nom, I0_nom, R0_nom, params_i,
                 t_end=t_end, n_steps=n_steps, method="BDF",
-                rtol=1e-4, atol=1e-7,
+                rtol=1e-6, atol=1e-9,   # R3: canonical tolerances
             )
+        except AssertionError:
+            raise   # R3: never drop simplex violations silently
         except Exception:
             continue
 
@@ -1066,7 +1070,7 @@ def plot_optimal_vs_nominal_curves(
         _, _, _, sol = simulate_SIR_ivp(
             Lc2, S0, I0, R0v, params,
             t_end=t_end, n_steps=n_steps,
-            method="BDF", rtol=1e-5, atol=1e-8,
+            method="BDF", rtol=1e-6, atol=1e-9,   # R3: canonical tolerances
         )
         return sol
 
@@ -1280,6 +1284,8 @@ def run_2d_param_sweep(
                     "beta_DCT_mult":    bm,
                     **res,
                 })
+            except AssertionError:
+                raise   # R3: never drop simplex violations silently
             except Exception as e:
                 warnings.warn(f"[2D sweep] errore a gamma={gm:.2f} "
                               f"beta={bm:.2f}: {e}")
