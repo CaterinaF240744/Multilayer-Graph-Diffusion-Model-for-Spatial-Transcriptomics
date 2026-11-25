@@ -541,7 +541,8 @@ if _os.environ.get("QUICK_EXPORT") == "1":
     _pk.dump(dict(comp=comp, params=diff_params, adata=adata_st2),
              open(f"{_out}/model_context.pkl", "wb"))
 
-    raise SystemExit(f"Quick export {_tag} completato")
+    print(f"Quick export {_tag} completato")
+    raise SystemExit(0)   # R3: exit code 0 (a message string makes the exit code 1)
 
 
 
