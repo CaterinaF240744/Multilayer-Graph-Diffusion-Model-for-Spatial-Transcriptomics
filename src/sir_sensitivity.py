@@ -100,9 +100,7 @@ PARAM_RANGES: dict[str, tuple[float, float]] = {
     "gamma_mult_outer": (0.8, 1.4),   # nominale = 1.10
     "gamma_mult_inner": (0.6, 1.2),   # nominale = 0.85
 
-    # Diffusione
-    "D_I_global": (0.3, 3.0),         # nominale = 0.20 (default sir_compartments D_I)
-    "D_S_global": (0.3, 3.0),         # nominale = 0.05 (default sir_compartments D_S)
+    # R3: D_I_global / D_S_global removed (D_H, D_D no longer in the model)
 }
 
 # Valori nominali (moltiplicatori = 1.0 per tutti)
@@ -212,7 +210,7 @@ def _run_single(
     base_params:  dict,
     multipliers:  dict[str, float],
     t_end:        float,
-    seed_I:       float = 0.10,
+    seed_I:       float = 0.05,
     threshold_I:  float = 0.10,
     n_steps:      int   = 200,
 ) -> dict:
@@ -294,7 +292,7 @@ def run_oat_analysis(
     t_end:       float,
     param_ranges: dict = None,
     n_levels:    int   = 7,
-    seed_I:      float = 0.10,
+    seed_I:      float = 0.05,
     n_steps:     int   = 200,
     verbose:     bool  = True,
 ) -> pd.DataFrame:
@@ -354,7 +352,7 @@ def run_morris_screening(
     param_ranges: dict = None,
     r:           int   = 10,
     levels:      int   = 4,
-    seed_I:      float = 0.10,
+    seed_I:      float = 0.05,
     n_steps:     int   = 200,
     verbose:     bool  = True,
 ) -> pd.DataFrame:
@@ -479,7 +477,7 @@ def run_monte_carlo_sweep(
     t_end:       float,
     param_ranges: dict = None,
     n_samples:   int   = 200,
-    seed_I:      float = 0.10,
+    seed_I:      float = 0.05,
     n_steps:     int   = 200,
     random_seed: int   = 42,
     verbose:     bool  = True,
@@ -558,7 +556,7 @@ def run_robustness_check(
     t_end:       float,
     param_ranges: dict = None,
     n_samples:   int   = 150,
-    seed_I:      float = 0.10,
+    seed_I:      float = 0.05,
     n_steps:     int   = 200,
     random_seed: int   = 0,
     verbose:     bool  = True,
@@ -990,7 +988,7 @@ def plot_optimal_vs_nominal_curves(
     base_params: dict,
     sweep2d:     dict,
     t_end:       float,
-    seed_I:      float = 0.10,
+    seed_I:      float = 0.05,
     n_steps:     int   = 300,
     figsize:     tuple = (20, 14),
     save_prefix: str   = None,
@@ -1205,7 +1203,7 @@ def run_2d_param_sweep(
     n_beta:       int   = 12,
     gamma_range:  tuple = (0.7, 2.0),
     beta_range:   tuple = (0.6, 1.8),
-    seed_I:       float = 0.10,
+    seed_I:       float = 0.05,
     n_steps:      int   = 150,
     threshold_I:  float = 0.10,
 ) -> dict:
@@ -1450,7 +1448,7 @@ def plot_2d_sweep_spatial(
     t_end:       float,
     base_params: dict,
     n_steps:     int   = 200,
-    seed_I:      float = 0.10,
+    seed_I:      float = 0.05,
     save_prefix: str   = None,
 ) -> None:
     """
@@ -1587,7 +1585,7 @@ def run_2d_sweep_analysis(
     n_beta:       int   = 12,
     gamma_range:  tuple = (0.7, 2.0),
     beta_range:   tuple = (0.6, 1.8),
-    seed_I:       float = 0.10,
+    seed_I:       float = 0.05,
     n_steps:      int   = 150,
     save_prefix:  str   = None,
 ) -> dict:
@@ -1703,7 +1701,7 @@ def run_full_sensitivity(
     n_morris_r:  int    = 15,
     n_mc:        int    = 300,
     n_robust:    int    = 200,
-    seed_I:      float  = 0.10,
+    seed_I:      float  = 0.05,
     n_steps_fast: int   = 150,
     primary_metric: str = "global_R",
     run_2d_sweep: bool  = True,

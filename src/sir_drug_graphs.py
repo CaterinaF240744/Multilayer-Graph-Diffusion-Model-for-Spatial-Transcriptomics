@@ -607,7 +607,7 @@ def plot_drug_tdose_comparison(
     sir_params:    dict,
     t_end:         float       = 80.0,
     n_steps:       int         = 800,
-    seed_I:        float       = 0.10,
+    seed_I:        float       = 0.05,
     dose_amount:   float       = 1.0,
     dose_mode:     str         = "bolus",
     node_radius:   float       = 0.05,
@@ -900,7 +900,7 @@ def plot_drug_tdose_curves(
     sir_params:    dict,
     t_end:         float = 80.0,
     n_steps:       int   = 800,
-    seed_I:        float = 0.10,
+    seed_I:        float = 0.05,
     dose_amount:   float = 1.0,
     dose_mode:     str   = "bolus",
     figsize:       tuple = (20, 16),
@@ -1170,7 +1170,7 @@ def plot_all_drug_graphs(
     sir_params:    dict        = None,
     t_dose:        float       = 20.0,
     t_end:         float       = 80.0,
-    seed_I:        float       = 0.10,
+    seed_I:        float       = 0.05,
     save_prefix:   str         = None,
 ) -> None:
     """
