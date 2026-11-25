@@ -59,6 +59,8 @@ except AttributeError:
 
 import scipy.sparse as sp
 from scipy.integrate import solve_ivp
+
+import model_core as _mc
 import matplotlib.pyplot as plt
 
 
@@ -253,8 +255,8 @@ def simulate_SIRD_drug(
     rho_v    = np.asarray(params["gamma"],  dtype=float)
     delta_v  = np.asarray(params["delta"],  dtype=float)
     rho2_v   = np.asarray(params["gamma2"], dtype=float)
-    D_H_v    = np.asarray(params["D_S"],    dtype=float)
-    D_D_v    = np.asarray(params["D_I"],    dtype=float)
+    _mc.warn_ignored_diffusion(params.get("D_S"), params.get("D_I"),
+                               where="simulate_SIRD_drug")
     k_F      = float(params["k_F"])
     k_e      = float(params["k_e"])
     IC50     = float(params.get("IC50_beta", 0.0))
@@ -290,12 +292,11 @@ def simulate_SIRD_drug(
     t_eval = np.linspace(0.0, float(t_end), int(n_steps))
 
     def rhs(t, y):
-        H  = np.clip(y[0*nC:1*nC], 0.0, 1.0)
-        D  = np.clip(y[1*nC:2*nC], 0.0, 1.0)
-        D2 = np.clip(y[2*nC:3*nC], 0.0, 1.0)
-        R  = np.clip(y[3*nC:4*nC], 0.0, 1.0)
-        X  = np.clip(y[4*nC:5*nC], 0.0, 1.0)
-        F  = np.clip(y[5*nC:6*nC], 0.0, None)
+        # R3: no clipping; the state block stays on the simplex by construction.
+        H  = y[0*nC:1*nC]
+        D  = y[1*nC:2*nC]
+        D2 = y[2*nC:3*nC]
+        F  = np.maximum(y[5*nC:6*nC], 0.0)   # concentration; guards IC50 term
 
         # Exposure locale λ_i(t) — Eq. 1
         lam = W_tilde @ D
@@ -311,10 +312,11 @@ def simulate_SIRD_drug(
         recover2 = rho2_v  * D2              # D2 → R  (Eq. 13, 14)
         sig      = float(sigma_fn(t, t_dose, da, **dkw)) * targeting
 
-        # ODE — Eq. 11-16
-        dH  = -infect                              - D_H_v * (Lc @ H)
-        dD  = +infect - recover1 - damage - drug_act - D_D_v * (Lc @ D)
-        dD2 = +drug_act - recover2                 - D_D_v * (Lc @ D2)
+        # ODE — Eq. 11-16. R3: Laplacian transport only on the drug
+        # concentration F, never on the state probabilities.
+        dH  = -infect
+        dD  = +infect - recover1 - damage - drug_act
+        dD2 = +drug_act - recover2
         dR  = +recover1 + recover2
         dX  = +damage
         dF  =  sig - k_e * F - drug_act            - D_F_v * (Lc @ F)
@@ -332,26 +334,16 @@ def simulate_SIRD_drug(
             RuntimeWarning, stacklevel=2,
         )
 
-    def _fin(block):
-        return np.clip(sol.y[block*nC:(block+1)*nC, -1], 0.0, None)
-
-    H_r  = np.clip(_fin(0), 0.0, 1.0)
-    D_r  = np.clip(_fin(1), 0.0, 1.0)
-    D2_r = np.clip(_fin(2), 0.0, 1.0)
-    R_r  = np.clip(_fin(3), 0.0, 1.0)
-    X_r  = np.clip(_fin(4), 0.0, 1.0)
-    F_r  = np.clip(_fin(5), 0.0, None)
-
-    # Normalizzazione: H + D + D2 + R + X deve sommaire a 1
-    pop = H_r + D_r + D2_r + R_r + X_r
-    pop = np.where(pop > 0, pop, 1.0)
+    blk = lambda k: sol.y[k*nC:(k+1)*nC]
+    _mc.check_simplex(blk(0), blk(1), blk(2), blk(3), blk(4),
+                      where="simulate_SIRD_drug")
     finals = dict(
-        S  = H_r  / pop,    # H  (alias S per backward compat)
-        I  = D_r  / pop,    # D  (alias I)
-        I2 = D2_r / pop,    # D2 (alias I2)
-        R  = R_r  / pop,    # R
-        D  = X_r  / pop,    # X  (alias D)
-        F  = F_r,
+        S  = blk(0)[:, -1],   # H  (alias S per backward compat)
+        I  = blk(1)[:, -1],   # D  (alias I)
+        I2 = blk(2)[:, -1],   # D2 (alias I2)
+        R  = blk(3)[:, -1],   # R
+        D  = blk(4)[:, -1],   # X  (alias D)
+        F  = np.maximum(blk(5)[:, -1], 0.0),
     )
     return sol, finals
 
@@ -368,7 +360,7 @@ def run_SIRD_drug(
     region_of:          np.ndarray,
     sir_params:         dict,
     drug_params:        dict  = None,
-    seed_I:             float = 0.10,
+    seed_I:             float = 0.05,
     seed_boundary_only: bool  = True,
     t_end:              float = 80.0,
     n_steps:            int   = 800,

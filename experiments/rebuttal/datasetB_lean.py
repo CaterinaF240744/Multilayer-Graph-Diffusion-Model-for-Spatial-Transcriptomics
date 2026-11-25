@@ -105,7 +105,7 @@ def run_sample(name, sample_path, repo_data_dir, out_dir):
         warnings.simplefilter("ignore")
         res = run_SIR_multilayer(
             comp=comp, sir_params=params, adata_st=adata_st,
-            seed_I=0.05, D_inter=0.05, t_end=15.0, n_steps=800,
+            seed_I=0.05, D_inter=0.01, t_end=15.0, n_steps=800,
             threshold_I=0.10, plot=False)
 
     # marker enrichment per sample (mean expression of injury markers)

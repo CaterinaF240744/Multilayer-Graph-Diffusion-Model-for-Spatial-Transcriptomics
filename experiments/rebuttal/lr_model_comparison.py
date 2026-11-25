@@ -58,7 +58,7 @@ comp, params, adata = ctx["comp"], ctx["params"], ctx["adata"]
 with warnings.catch_warnings(), contextlib.redirect_stdout(io.StringIO()):
     warnings.simplefilter("ignore")
     ml = run_SIR_multilayer(comp=comp, sir_params=params, adata_st=adata, seed_I=0.05,
-                            D_inter=0.05, t_end=60.0, n_steps=800, threshold_I=0.10, plot=False)
+                            D_inter=0.01, t_end=60.0, n_steps=800, threshold_I=0.10, plot=False)
 gi = np.asarray(ml["net"]["global_index"])
 comps2 = np.asarray(comp["comps2"])
 W = sp.csr_matrix(comp["Wc2"])[np.ix_(gi, gi)]

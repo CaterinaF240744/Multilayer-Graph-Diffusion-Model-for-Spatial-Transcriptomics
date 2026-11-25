@@ -455,7 +455,7 @@ ml_result = run_SIR_multilayer(
     sir_params  = diff_params,
     adata_st    = adata_st2,
     seed_I      = 0.05,
-    D_inter     = 0.05,
+    D_inter     = 0.01,   # R3: = 0.20 x 0.05 (sqrt(D_D) factor removed)
     t_end       = float(sol_diff.t[-1]),
     n_steps     = 800,
     threshold_I = 0.10,
@@ -626,7 +626,8 @@ def step10_sweep_D_inter(comp, diff_params, adata_st2, sol_diff):
     print("STEP 10: D_inter sweep — multilayer front robustness")
     print("="*60)
 
-    D_inter_values = [0.01, 0.02, 0.05, 0.10, 0.20, 0.40]
+    # R3: R2 sweep [0.01..0.40] x 0.20 (sqrt(D_D) factor removed)
+    D_inter_values = [0.002, 0.004, 0.01, 0.02, 0.04, 0.08]
     t_end = float(sol_diff.t[-1])
 
     results_by_D = {}

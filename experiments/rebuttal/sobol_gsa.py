@@ -7,10 +7,11 @@ Same model as the case study (Table 4): multilayer exposure-driven ODE
 Kidney pipeline run, canonical PT/DCT/TAL layers and inter-layer topology,
 seed p^D_0 = 0.05 in the canonical seed compartments, t_end = 60, threshold 0.10.
 
-Parameters (9), each varied as a multiplier in [0.6, 1.4] (+-40%) of its
+Parameters (7), each varied as a multiplier in [0.6, 1.4] (+-40%) of its
 case-study value, so that zone-specific multipliers are preserved:
-  beta_PT, beta_DCT, beta_TAL, rho_PT, rho_DCT, rho_TAL, D_H, D_D, kappa
-Saltelli sampling, N = 256, no second-order terms -> N (D + 2) = 2,816 runs.
+  beta_PT, beta_DCT, beta_TAL, rho_PT, rho_DCT, rho_TAL, kappa
+(R3: D_H and D_D removed from the model, see src/model_core.py.)
+Saltelli sampling, N = 256, no second-order terms -> N (D + 2) = 2,304 runs.
 
 Outputs per run:
   t_inv      global invasion time (multilayer metrics)
@@ -46,8 +47,8 @@ from sir_multilayer import run_SIR_multilayer
 from sir_transcompartment_metrics import _extract_SIR
 
 CTX_PATH = "results/annotation_runs/NN/model_context.pkl"
-SEED_I, D_INTER, T_END, N_STEPS, THR = 0.05, 0.05, 60.0, 800, 0.10
-NAMES = ["beta_PT", "beta_DCT", "beta_TAL", "rho_PT", "rho_DCT", "rho_TAL", "D_H", "D_D", "kappa"]
+SEED_I, D_INTER, T_END, N_STEPS, THR = 0.05, 0.01, 60.0, 800, 0.10  # R3 kappa
+NAMES = ["beta_PT", "beta_DCT", "beta_TAL", "rho_PT", "rho_DCT", "rho_TAL", "kappa"]
 PROBLEM = dict(num_vars=len(NAMES), names=NAMES, bounds=[[0.6, 1.4]] * len(NAMES))
 OUTPUTS = ["t_inv", "peak_D", "auc_D", "t_inv_PT"]
 _trapz = getattr(np, "trapezoid", None) or np.trapz
@@ -59,7 +60,7 @@ def _init(ctx):
 
 
 def run(m):
-    """m = vector of 9 multipliers."""
+    """m = vector of 7 multipliers."""
     comp, base, adata = _CTX["comp"], _CTX["params"], _CTX["adata"]
     macro_of = np.asarray(comp["macro_of"])
     p = {k: np.array(v, dtype=float, copy=True) for k, v in base.items()}
@@ -67,13 +68,10 @@ def run(m):
         sel = macro_of == mt
         p["beta"][sel] *= m[j]
         p["gamma"][sel] *= m[3 + j]
-    p["D_S"] *= m[6]
-    tub = np.isin(macro_of, ["PT", "DCT", "TAL"])
-    p["D_I"][tub] *= m[7]
     with warnings.catch_warnings(), contextlib.redirect_stdout(io.StringIO()):
         warnings.simplefilter("ignore")
         ml = run_SIR_multilayer(comp=comp, sir_params=p, adata_st=adata, seed_I=SEED_I,
-                                D_inter=D_INTER * m[8], t_end=T_END, n_steps=N_STEPS,
+                                D_inter=D_INTER * m[6], t_end=T_END, n_steps=N_STEPS,
                                 threshold_I=THR, plot=False)
     
     plt.close("all")
