@@ -205,6 +205,11 @@ def main():
     # 5. Merge predicted vs. observed and compute rank correlation
     merged = sim_metrics.set_index("compartment").join(obs_centroid, how="inner")
     merged = merged.dropna(subset=["t_act", "t_obs_hours"])
+    # R3: the centroid is a weighted mean of timepoint hours; compartments whose
+    # signal sits entirely at 6 wk get 1008 h up to floating-point error
+    # (1008.0 vs 1008.0000000000001). Round so that equal centroids are ties
+    # for the rank correlation instead of an arbitrary order.
+    merged["t_obs_hours"] = merged["t_obs_hours"].round(6)
 
     rho_s, p_val = spearmanr(merged["t_act"], merged["t_obs_hours"])
     print(f"\nSpearman correlation (simulated t_act vs. observed temporal centroid):")

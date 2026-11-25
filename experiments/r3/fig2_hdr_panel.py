@@ -28,7 +28,9 @@ sys.path.insert(0, os.path.join(ROOT, "src"))
 import model_core as mc  # noqa: E402
 
 OUT = os.path.join(ROOT, "results", "r3", "fig2")
-T_END, N_EVAL, SEED_D, THR = 60.0, 1201, 0.05, 0.10
+# N_EVAL = 801 points: the same time grid as Table 2 (n_steps = 800), so the
+# t_act shown in the figure equals t_cross in Table 2.
+T_END, N_EVAL, SEED_D, THR = 60.0, 801, 0.05, 0.10
 
 
 def case_study():
