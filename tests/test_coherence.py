@@ -119,38 +119,29 @@ class TestParameterCoherence:
 
 
 class TestExposureDriven:
-    """Verify the model uses exposure-driven (β·H·λ), not bilinear (β·H·D)."""
+    """Verify the model uses exposure-driven (β·H·λ), not bilinear (β·H·D).
 
-    def test_single_layer_exposure_driven(self):
-        """Check sir_compartments uses W_tilde @ D for exposure."""
+    R3: behavioural test on the single canonical RHS (model_core), which every
+    entry point now calls, instead of grepping the source of each copy.
+    """
+
+    def test_canonical_rhs_is_exposure_driven(self):
+        import model_core as mc
+        rng = np.random.default_rng(0)
+        n = 6
+        E = mc.row_normalise(rng.uniform(size=(n, n)))
+        beta, rho = rng.uniform(0.2, 0.5, n), rng.uniform(0.05, 0.15, n)
+        pD = rng.uniform(0, 0.3, n); pR = rng.uniform(0, 0.2, n); pH = 1 - pD - pR
+        d = mc.hdr_rhs(E, beta, rho)(0.0, np.concatenate([pH, pD, pR]))
+        np.testing.assert_allclose(-d[:n], beta * pH * (E @ pD))       # β·H·λ
+        assert not np.allclose(-d[:n], beta * pH * pD)                   # not β·H·D
+        np.testing.assert_allclose(d[:n] + d[n:2*n] + d[2*n:], 0, atol=1e-15)
+
+    def test_entry_points_use_core(self):
         import inspect
-        from sir_compartments import simulate_SIR_ivp
-
-        src = inspect.getsource(simulate_SIR_ivp)
-        assert "W_tilde @ D" in src or "lam = W_tilde @ D" in src
-        assert "beta_v * H * lam" in src  # β·H·λ, not β·H·D
-
-    def test_multilayer_exposure_driven(self):
-        """Check sir_multilayer uses exposure-driven formulation."""
-        import inspect
-        from sir_multilayer import simulate_SIR_multilayer
-
-        src = inspect.getsource(simulate_SIR_multilayer)
-        assert "lam_l" in src
-        assert "Wt @ I_l" in src or "Wt @ D" in src
-        assert "b * S_l * lam_l" in src  # β·S·λ, not β·S·I
-
-    def test_not_bilinear_multilayer(self):
-        """Ensure the bilinear formulation is NOT used in multilayer."""
-        import inspect
-        from sir_multilayer import simulate_SIR_multilayer
-
-        src = inspect.getsource(simulate_SIR_multilayer)
-        # The bilinear version would have "b * S_l * I_l" without lam
-        # The exposure-driven version has "b * S_l * lam_l"
-        assert "b * S_l * lam_l" in src
-        # Make sure there's no standalone bilinear infection term
-        assert "inf_l = b * S_l * I_l" not in src
+        import sir_compartments, sir_multilayer, sir_drug, sir_section7
+        for mod in (sir_compartments, sir_multilayer, sir_drug, sir_section7):
+            assert "_mc." in inspect.getsource(mod), mod.__name__
 
 
 class TestSeedValue:

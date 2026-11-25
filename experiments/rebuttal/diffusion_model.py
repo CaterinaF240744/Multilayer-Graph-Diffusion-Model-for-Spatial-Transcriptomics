@@ -10,7 +10,11 @@ adjacency) and per-compartment parameters (beta, rho). It is used both to
 reproduce the original V1 Mouse Kidney results and to run the same model on
 the new GSE182939 time-course dataset for temporal validation (Experiment C).
 
-Equations implemented (mean-field, continuous-time Euler integration):
+R3: integrated with the canonical BDF solver of src/model_core.py; the
+Laplacian terms below were REMOVED (they violated per-compartment
+normalisation). D_H / D_D are accepted and ignored.
+
+Equations of the R2 version (mean-field, continuous-time Euler integration):
     lambda_i(t) = sum_j w_tilde_ij * p_D_j(t)                      (Eq. 2 / 17)
     dpH_i/dt = - beta_i * lambda_i(t) * pH_i  - D_{H,i} * (L @ pH)_i   (Eq. 2 / 18)
     dpD_i/dt = + beta_i * lambda_i(t) * pH_i  - rho_i * pD_i
@@ -22,8 +26,15 @@ per-compartment diffusion coefficients from Table 1 (default 0 if not
 provided, which disables the spatial diffusion term).
 """
 
+import os
+import sys
+
 import numpy as np
 import pandas as pd
+
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                                "..", "..", "src"))
+import model_core as _mc  # noqa: E402
 
 
 class CompartmentDiffusionModel:
@@ -112,28 +123,16 @@ class CompartmentDiffusionModel:
         p_H0 = 1.0 - p_D0 - p_R0
         assert np.all(p_H0 >= -1e-9), "p_D0 + p_R0 must not exceed 1"
 
+        # R3: canonical solver (BDF) from src/model_core.py, same as every
+        # other analysis; no Laplacian transport, clipping or renormalisation.
+        # `dt` now only sets the output grid.
+        _mc.warn_ignored_diffusion(self.D_H, self.D_D,
+                                   where="CompartmentDiffusionModel")
         steps = int(np.ceil(t_end / dt)) + 1
-        time = np.linspace(0.0, t_end, steps)
-        pH = np.zeros((steps, n))
-        pD = np.zeros((steps, n))
-        pR = np.zeros((steps, n))
-        pH[0], pD[0], pR[0] = p_H0, p_D0, p_R0
-
-        for k in range(steps - 1):
-            lam = self.W_tilde @ pD[k]                       # Eq. 2 / 17
-            # Eq. 2-4 / 18-20: exposure-driven infection + spatial diffusion
-            dH = -self.beta * lam * pH[k] - self.D_H * (self.L @ pH[k])
-            dD = self.beta * lam * pH[k] - self.rho * pD[k] - self.D_D * (self.L @ pD[k])
-            dR = self.rho * pD[k]
-            pH[k + 1] = np.clip(pH[k] + dt * dH, 0.0, 1.0)
-            pD[k + 1] = np.clip(pD[k] + dt * dD, 0.0, 1.0)
-            pR[k + 1] = np.clip(pR[k] + dt * dR, 0.0, 1.0)
-            # renormalise for numerical drift
-            s = pH[k + 1] + pD[k + 1] + pR[k + 1]
-            s[s == 0] = 1.0
-            pH[k + 1] /= s
-            pD[k + 1] /= s
-            pR[k + 1] /= s
+        y0 = np.concatenate([p_H0, p_D0, p_R0])
+        tr = _mc.simulate(self.W_tilde, self.beta, self.rho, y0, t_end,
+                          n_eval=steps, where="CompartmentDiffusionModel")
+        time, pH, pD, pR = tr.t, tr.pH.T, tr.pD.T, tr.pR.T
 
         return {"time": time, "pH": pH, "pD": pD, "pR": pR}
 

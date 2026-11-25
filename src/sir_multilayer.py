@@ -88,6 +88,8 @@ try:
 except AttributeError:
     _trapz = np.trapezoid
 from scipy.integrate import solve_ivp
+
+import model_core as _mc
 from scipy.sparse.csgraph import laplacian as sp_laplacian
 import matplotlib.pyplot as plt
 import matplotlib.cm as cm
@@ -158,10 +160,8 @@ def build_multilayer_network(
         # Row-normalized exposure matrix W̃_l (Eq. 1 of the paper)
         # W̃_l[i,j] = W_raw[i,j] / Σ_k W_raw[i,k],  diagonal = 0
         # Used for the exposure-driven infection term: λ_l = W̃_l @ D_l
-        W_raw_l  = np.diag(np.diag(L_intra.toarray())) - L_intra.toarray()
-        np.fill_diagonal(W_raw_l, 0.0)
-        row_sum_l = W_raw_l.sum(axis=1, keepdims=True)
-        W_tilde_l = np.where(row_sum_l > 1e-12, W_raw_l / row_sum_l, 0.0)
+        # R3: row-normalise W_sub itself (before: the normalised Laplacian)
+        W_tilde_l = _mc.row_normalise(W_sub)
 
         layers[macro] = dict(
             nodes    = node_idx,
@@ -200,7 +200,7 @@ def build_interlayer_coupling(
     inv2:       np.ndarray,
     sir_params: dict,
     topology:   list = INTERLAYER_TOPOLOGY,
-    D_inter:    float = 1.0,
+    D_inter:    float = 0.01,
 ) -> sp.csr_matrix:
     """
     Costruisce la matrice di coupling inter-layer W_inter (n_total × n_total)
@@ -220,15 +220,14 @@ def build_interlayer_coupling(
 
         flux(A→B) = Σ_{i∈spots(A)} Σ_{j∈spots(B)} Wsp[i,j]
 
-    Questo viene poi normalizzato per sqrt(N_A · N_B) e moltiplicato per
-    sqrt(D_I_A · D_I_B) per ottenere il coupling effettivo tra compartimenti.
+    Questo viene poi normalizzato per sqrt(N_A · N_B) (R3: senza il fattore
+    sqrt(D_D,A · D_D,B), rimosso insieme a D_D).
 
     Formula per ogni coppia compartimento (ca, cb) con ca∈layerA, cb∈layerB:
 
         W_inter[ca_pos, cb_pos] =
             D_inter
             · (Σ_{i∈spots(ca)} Σ_{j∈spots(cb)} Wsp[i,j]) / sqrt(N_ca · N_cb)
-            · sqrt(D_I_ca · D_I_cb)
 
     Parameters
     ----------
@@ -249,7 +248,6 @@ def build_interlayer_coupling(
     layers       = net["layers"]
     node_ranges  = net["node_ranges"]
 
-    D_I_global = np.asarray(sir_params["D_I"], dtype=float)
 
     # Pre-calcola: per ogni compartimento globale → lista spot
     comp_spots: dict[int, np.ndarray] = {}
@@ -273,9 +271,6 @@ def build_interlayer_coupling(
                           for k in range(ea - sa)}
         comp_to_gpos_b = {int(global_index[sb + k]): sb + k
                           for k in range(eb - sb)}
-
-        DI_a = D_I_global[nodes_a]
-        DI_b = D_I_global[nodes_b]
 
         for ka, ci_a in enumerate(nodes_a):
             spots_a = comp_spots.get(int(ci_a))
@@ -308,8 +303,11 @@ def build_interlayer_coupling(
                 n_cb = len(spots_b)
                 w_norm = flux / max(np.sqrt(n_ca * n_cb), 1.0)
 
-                # Moltiplica per sqrt(D_I_ca · D_I_cb)
-                w = D_inter * w_norm * np.sqrt(DI_a[ka] * DI_b[kb])
+                # R3: the sqrt(D_D,A * D_D,B) factor is removed together with
+                # D_D. For PT/DCT/TAL D_D was 0.20 everywhere, so the factor
+                # was a constant 0.20: kappa_R3 = 0.20 * kappa_R2 reproduces
+                # the R2 coupling exactly (nominal 0.05 -> 0.01).
+                w = D_inter * w_norm
 
                 # Arco bidirezionale
                 rows.append(gpa); cols.append(gpb); vals.append(w)
@@ -377,7 +375,7 @@ def simulate_SIR_multilayer(
     W_inter:        sp.csr_matrix,
     sir_params:     dict,
     boundary_mask:  np.ndarray,
-    seed_I:         float = 0.10,
+    seed_I:         float = 0.05,
     t_end:          float = 50.0,
     n_steps:        int   = 500,
     method:         str   = "BDF",
@@ -399,8 +397,8 @@ def simulate_SIR_multilayer(
 
     W̃_l è la matrice di adiacenza normalizzata intra-layer (Eq. 1);
     W_inter è la matrice di coupling inter-layer nodo-a-nodo (Eq. 4).
-    Il termine diffusivo (Lapliciano intra-layer) resta sui soli stati
-    S e I, come nel modello single-layer.
+    R3: nessun termine diffusivo Laplaciano sugli stati; l'accoppiamento
+    spaziale passa solo per λ_i, quindi H+D+R = 1 in ogni nodo.
 
     Parameters
     ----------
@@ -444,78 +442,25 @@ def simulate_SIR_multilayer(
     y0      = np.concatenate([S0, I0, R0])
     t_eval  = np.linspace(0.0, float(t_end), int(n_steps))
 
-    # Laplaciani intra-layer, matrici di esposizione W̃_l e vettori D_S, D_I
-    L_list     = [layers[m]["L_intra"]  for m in macros]
-    Wt_list    = [layers[m]["W_tilde"]  for m in macros]
-    DS_list = [
-        np.asarray(sir_params["D_S"], dtype=float)[layers[m]["nodes"]]
-        for m in macros
-    ]
-    DI_list = [
-        np.asarray(sir_params["D_I"], dtype=float)[layers[m]["nodes"]]
-        for m in macros
-    ]
-
-    def rhs(t, y):
-        S = np.clip(y[:n_total], 0.0, 1.0)
-        I = np.clip(y[n_total:2*n_total], 0.0, 1.0)
-        # Forza S+I ≤ 1 per evitare R < 0
-        excess = np.maximum(S + I - 1.0, 0.0)
-        denom  = S + I + 1e-15
-        S = S - excess * S / denom
-        I = I - excess * I / denom
-
-        dS = np.zeros(n_total)
-        dI = np.zeros(n_total)
-        dR = np.zeros(n_total)
-
-        # ── Esposizione inter-layer (Eq. 4): λ_inter = Σ_β κ_αβ · W̃_inter · D ──
-        # W_inter è già la matrice di coupling normalizzata nodo-a-nodo;
-        # il termine W_inter @ I dà l'esposizione cross-layer al nodo i.
-        lam_inter = W_inter @ I                       # (n_total,)  Eq. 4
-
-        # ── Dinamica intra-layer (exposure-driven, Eq. 1-2) ──────────────
-        for macro, L, Wt, D_S, D_I in zip(macros, L_list, Wt_list, DS_list, DI_list):
-            s, e = node_ranges[macro]
-            S_l  = S[s:e]
-            I_l  = I[s:e]
-            b    = beta_vec[s:e]
-            g    = gamma_vec[s:e]
-
-            # Esposizione locale: λ_i = Σ_j w̃_ij · D_j  (Eq. 1, intra-layer)
-            #   + esposizione cross-layer da lam_inter (Eq. 4)
-            lam_l = Wt @ I_l + lam_inter[s:e]          # (n_l,)  Eq. 1 + Eq. 4
-
-            # Infezione exposure-driven (Eq. 2): infect = β · H · λ
-            inf_l = b * S_l * lam_l                    # (n_l,)  Eq. 2
-
-            dS[s:e] += -inf_l - D_S * (L @ S_l)
-            dI[s:e] +=  inf_l - g * I_l - D_I * (L @ I_l)
-            dR[s:e] +=  g * I_l
-
-        return np.concatenate([dS, dI, dR])
-
-    sol = solve_ivp(
-        rhs, (0.0, float(t_end)), y0,
-        t_eval=t_eval, method=method, rtol=rtol, atol=atol,
-    )
-
-    if not sol.success:
-        warnings.warn(
-            f"simulate_SIR_multilayer: solver failed — {sol.message}",
-            RuntimeWarning, stacklevel=2,
-        )
+    # R3: one exposure matrix E = blockdiag(W~[alpha]) + W_inter; no Laplacian
+    # transport on the state probabilities (see model_core).
+    _mc.warn_ignored_diffusion(sir_params.get("D_S"), sir_params.get("D_I"),
+                               where="simulate_SIR_multilayer")
+    E = _mc.multilayer_exposure(
+        [(node_ranges[m][0], node_ranges[m][1], layers[m]["W_tilde"])
+         for m in macros],
+        W_inter, n_total)
+    tr = _mc.simulate(E, beta_vec, gamma_vec, y0, t_end, n_eval=n_steps,
+                      method=method, rtol=rtol, atol=atol,
+                      where="simulate_SIR_multilayer")
+    sol = tr.sol
 
     S_fin = {}; I_fin = {}; R_fin = {}
     for macro in macros:
         s, e = node_ranges[macro]
-        S_r = np.clip(sol.y[s:e,                 -1], 0.0, 1.0)
-        I_r = np.clip(sol.y[n_total+s:n_total+e, -1], 0.0, 1.0)
-        R_r = np.clip(sol.y[2*n_total+s:2*n_total+e, -1], 0.0, 1.0)
-        tot = np.where(S_r + I_r + R_r > 0, S_r + I_r + R_r, 1.0)
-        S_fin[macro] = S_r / tot
-        I_fin[macro] = I_r / tot
-        R_fin[macro] = R_r / tot
+        S_fin[macro] = tr.pH[s:e, -1]
+        I_fin[macro] = tr.pD[s:e, -1]
+        R_fin[macro] = tr.pR[s:e, -1]
 
     return S_fin, I_fin, R_fin, sol, y0_info
 
@@ -742,7 +687,7 @@ def plot_interlayer_coupling(
     ax.set_xticks(range(C)); ax.set_yticks(range(C))
     ax.set_xticklabels(macros, fontsize=12)
     ax.set_yticklabels(macros, fontsize=12)
-    ax.set_title("Coupling inter-layer\n(W_off-diag · √D_I, normalizzato)",
+    ax.set_title("Coupling inter-layer\n(W_off-diag · κ, normalizzato)",
                  fontsize=12)
 
     thr = mat.mean()
@@ -817,7 +762,7 @@ def plot_multilayer_graph(
     Dimensione   = I final del compartimento
     Bordo rosso  = spot boundary/outer_medulla (seed)
     Archi grigi  = archi kNN intra-layer (alpha basso)
-    Archi azzurri= diffusione inter-layer (W_Wc2 · √D_I)
+    Archi azzurri= diffusione inter-layer (W_Wc2 · κ)
     """
     from matplotlib.lines import Line2D
 
@@ -1022,8 +967,8 @@ def run_SIR_multilayer(
     comp:        dict,
     sir_params:  dict,
     adata_st,
-    seed_I:      float = 0.10,
-    D_inter:     float = 0.05,
+    seed_I:      float = 0.05,
+    D_inter:     float = 0.01,   # R3 nominal kappa
     t_end:       float = 50.0,
     n_steps:     int   = 500,
     macros:      tuple = MULTILAYER_MACROS,
@@ -1078,7 +1023,7 @@ def run_SIR_multilayer(
 
     # 2. Coupling inter-layer (da Wsp spot-level + D_I)
     print(f"\n  [2] Costruzione coupling inter-layer "
-          f"(Wsp spot-level · √D_I · D_inter={D_inter})...")
+          f"(Wsp spot-level · κ = D_inter = {D_inter})...")
     W_inter = build_interlayer_coupling(
         net, Wsp, inv2, sir_params,
         topology=INTERLAYER_TOPOLOGY,
@@ -1145,6 +1090,10 @@ def run_SIR_multilayer(
 
     return dict(
         net          = net,
+        E            = _mc.multilayer_exposure(          # R3: exposure used
+            [(net["node_ranges"][m][0], net["node_ranges"][m][1],
+              net["layers"][m]["W_tilde"]) for m in net["layers"]],
+            W_inter, net["n_total"]),
         W_inter      = W_inter,
         interlayer_w = interlayer_w,
         S_fin        = S_fin,

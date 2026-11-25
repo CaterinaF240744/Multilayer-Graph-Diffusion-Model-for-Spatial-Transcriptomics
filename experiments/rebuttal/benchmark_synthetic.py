@@ -246,8 +246,8 @@ def spot_level_truth(Wstar, cell_types, zones, rng,
     if beta_het is not None:
         beta = beta * beta_het
 
-    H = np.ones(n)
     D = np.where(zones == "outer_medulla", SEED_P0, 0.0)
+    H = 1.0 - D          # R3: was np.ones(n), i.e. H + D = 1.05 on seeds
     R = np.zeros(n)
 
     n_steps = int(round(t_end / dt))
@@ -259,12 +259,10 @@ def spot_level_truth(Wstar, cell_types, zones, rng,
     for s in range(1, n_steps + 1):
         lam = Wt @ D
         inf = beta * H * lam
-        H = H - dt * inf
-        D = D + dt * (inf - rho * D)
-        R = R + dt * (rho * D)
-        # enforce conservation
-        tot = np.clip(H + D + R, 1e-12, None)
-        H, D, R = H / tot, D / tot, R / tot
+        rec = rho * D                       # R3: same D for both fluxes,
+        H = H - dt * inf                    # so H + D + R is conserved
+        D = D + dt * (inf - rec)            # exactly (no renormalisation)
+        R = R + dt * rec
         newly = (D >= ACT_THRESHOLD) & np.isnan(act_t)
         act_t[newly] = s * dt
         if s % rec_every == 0:
@@ -534,8 +532,8 @@ def run_blind_pipeline(X, genes, coords, rng,
         params["beta"] = np.full(C, 0.30)
 
     seed_mask = np.isin(region_of, ["outer_medulla", "boundary"])
-    S0 = np.ones(C)
     I0 = np.where(seed_mask, SEED_P0, 0.0)
+    S0 = 1.0 - I0        # R3: was np.ones(C) (sum 1.05 on seeds)
     R0 = np.zeros(C)
     if exposure == "binary":
         # diagnostics: exposure from the BINARY contact adjacency (same
@@ -691,8 +689,8 @@ def run_one(args):
         region_of = np.array(["_".join(c.split("_")[1:]) for c in sim["comps"]])
         sim["seed_mask"] = region_of == "inner_medulla"
         C = len(sim["comps"])
-        S0 = np.ones(C)
         I0 = np.where(sim["seed_mask"], SEED_P0, 0.0)
+        S0 = 1.0 - I0    # R3: was np.ones(C)
         R0 = np.zeros(C)
         Hf, Df, Rf, sol = simulate_SIR_ivp(
             sp_laplacian(sp.csr_matrix(sim["Wc"]), normed=True).tocsr(),

@@ -49,6 +49,8 @@ import numpy as np
 import scipy.sparse as sp
 from scipy.integrate import solve_ivp
 
+import model_core as _mc
+
 try:
     _trapz = np.trapezoid
 except AttributeError:
@@ -150,20 +152,15 @@ def build_default_params_SIR(
 
 def _build_W_tilde(Lc: sp.spmatrix) -> np.ndarray:
     """
-    Ricava W̃ dal Laplaciano normalizzato Lc.
+    Row-normalised exposure matrix W~ = D^-1 W (Eq. 2), recovered exactly
+    from the normalised Laplacian Lc.
 
-    W_raw_{ij} = diag(Lc)_i · δ_{ij} - Lc_{ij}   (adiacenza pesata, off-diag)
-    W̃_{ij}    = W_raw_{ij} / Σ_k W_raw_{ik}       (normalizzazione per riga)
-
-    This is the matrix used to compute the local exposure:
-        λ_i(t) = Σ_j W̃_{ij} · p^D_j(t)   (Eq. 1 dell'articolo)
+    R3: before R3 this row-normalised the off-diagonal of Lc, i.e. of
+    D^-1/2 W D^-1/2, giving w~_ij proportional to w_ij / sqrt(d_j) instead of
+    w_ij / d_i, and Section 7 used yet another (the correct) definition.
+    Now every module uses w~_ij = w_ij / sum_k w_ik.
     """
-    Lc_arr = np.array(sp.csr_matrix(Lc).toarray(), dtype=float)
-    W_raw  = np.diag(np.diag(Lc_arr)) - Lc_arr
-    np.fill_diagonal(W_raw, 0.0)
-    row_sum = W_raw.sum(axis=1, keepdims=True)
-    W_tilde = np.where(row_sum > 1e-12, W_raw / row_sum, 0.0)
-    return W_tilde
+    return _mc.row_normalised_from_normed_laplacian(Lc)
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -187,9 +184,11 @@ def simulate_SIR_ivp(
 
     Equazioni implementate (Sezione 8.2, Eq. 2-4):
 
-      dp^H/dt = -β_i · p^H_i · λ_i(t)  -  D_{H,i} · (L_c @ p^H)_i
-      dp^D/dt = +β_i · p^H_i · λ_i(t)  -  ρ_i · p^D_i  -  D_{D,i} · (L_c @ p^D)_i
+      dp^H/dt = -β_i · p^H_i · λ_i(t)
+      dp^D/dt = +β_i · p^H_i · λ_i(t)  -  ρ_i · p^D_i
       dp^R/dt = +ρ_i · p^D_i
+
+    (R3: Laplacian transport terms on p^H and p^D removed; see model_core.)
 
     con λ_i(t) = W̃ @ p^D  (Eq. 1)
 
@@ -211,57 +210,19 @@ def simulate_SIR_ivp(
                            sol.y[2C:3C] → R(t)
     """
     nC      = len(S0)
-    Lc      = sp.csr_matrix(Lc)
-    W_tilde = _build_W_tilde(Lc)
+    W_tilde = _build_W_tilde(sp.csr_matrix(Lc))
+    _mc.warn_ignored_diffusion(params.get("D_S"), params.get("D_I"),
+                               where="simulate_SIR_ivp")
 
-    beta_v  = np.asarray(params["beta"],  dtype=float)
-    rho_v   = np.asarray(params["gamma"], dtype=float)  # ρ_i
-    D_H_v   = np.asarray(params["D_S"],   dtype=float)  # D_{H,i}
-    D_D_v   = np.asarray(params["D_I"],   dtype=float)  # D_{D,i}
-
-    y0     = np.concatenate([
-        np.asarray(S0, dtype=float),
-        np.asarray(I0, dtype=float),
-        np.asarray(R0, dtype=float),
-    ])
-    t_eval = np.linspace(0.0, float(t_end), int(n_steps))
-
-    def rhs(t, y):
-        H = np.clip(y[:nC],     0.0, 1.0)
-        D = np.clip(y[nC:2*nC], 0.0, 1.0)
-
-        # Exposure locale λ_i(t) = W̃ @ D  (Eq. 1)
-        lam = W_tilde @ D
-
-        # ODE — Eq. 2-4
-        infect = beta_v * H * lam          # flusso H → D
-        recover = rho_v * D                # flusso D → R
-
-        dH = -infect              - D_H_v * (Lc @ H)
-        dD = +infect - recover    - D_D_v * (Lc @ D)
-        dR = +recover
-
-        return np.concatenate([dH, dD, dR])
-
-    sol = solve_ivp(
-        rhs, (0.0, float(t_end)), y0,
-        t_eval=t_eval, method=method, rtol=rtol, atol=atol,
-    )
-
-    if not sol.success:
-        warnings.warn(
-            f"simulate_SIR_ivp: solver failed — {sol.message}",
-            RuntimeWarning, stacklevel=2,
-        )
-
-    # Normalizzazione final (H+D+R deve sommare a 1)
-    H_r = np.clip(sol.y[:nC,     -1], 0.0, 1.0)
-    D_r = np.clip(sol.y[nC:2*nC, -1], 0.0, 1.0)
-    R_r = np.clip(sol.y[2*nC:,   -1], 0.0, 1.0)
-    tot = H_r + D_r + R_r
-    tot = np.where(tot > 0, tot, 1.0)
-
-    return H_r / tot, D_r / tot, R_r / tot, sol
+    y0 = np.concatenate([np.asarray(S0, dtype=float),
+                         np.asarray(I0, dtype=float),
+                         np.asarray(R0, dtype=float)])
+    tr = _mc.simulate(W_tilde, params["beta"], params["gamma"], y0, t_end,
+                      n_eval=n_steps, method=method, rtol=rtol, atol=atol,
+                      where="simulate_SIR_ivp")
+    # No clipping or renormalisation: the canonical model stays on the simplex
+    # (checked inside _mc.simulate).
+    return tr.pH[:, -1], tr.pD[:, -1], tr.pR[:, -1], tr.sol
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -294,18 +255,13 @@ def simulate_SIR_euler(
 
     beta_v  = np.asarray(params["beta"],  dtype=float)
     rho_v   = np.asarray(params["gamma"], dtype=float)
-    D_H_v   = np.asarray(params["D_S"],   dtype=float)
-    D_D_v   = np.asarray(params["D_I"],   dtype=float)
-
-    D_max = max(D_H_v.max(), D_D_v.max())
-    L_inf = float(abs(Lc).sum(axis=1).max())
-    cfl   = dt * D_max * L_inf
-    if cfl > 0.5:
-        warnings.warn(
-            f"simulate_SIR_euler: CFL ≈ {cfl:.2f} > 0.5. "
-            "Aumenta n_steps o usa simulate_SIR_ivp.",
-            RuntimeWarning, stacklevel=2,
-        )
+    _mc.warn_ignored_diffusion(params.get("D_S"), params.get("D_I"),
+                               where="simulate_SIR_euler")
+    # Explicit Euler is positivity-preserving if dt * max(beta, rho) < 1.
+    if dt * max(beta_v.max(), rho_v.max()) >= 1.0:
+        warnings.warn("simulate_SIR_euler: dt too large for positivity; "
+                      "increase n_steps or use simulate_SIR_ivp.",
+                      RuntimeWarning, stacklevel=2)
 
     H = np.asarray(S0, dtype=float).copy()
     D = np.asarray(I0, dtype=float).copy()
@@ -318,22 +274,16 @@ def simulate_SIR_euler(
     H_h[:, 0] = H;  D_h[:, 0] = D;  R_h[:, 0] = R
 
     for k in range(n_steps):
-        H_c = np.clip(H, 0.0, 1.0)
-        D_c = np.clip(D, 0.0, 1.0)
+        lam     = W_tilde @ D
+        infect  = beta_v * H * lam
+        recover = rho_v  * D
 
-        lam     = W_tilde @ D_c
-        infect  = beta_v * H_c * lam
-        recover = rho_v  * D_c
-
-        dH = -infect              - D_H_v * (Lc @ H_c)
-        dD = +infect - recover    - D_D_v * (Lc @ D_c)
-        dR = +recover
-
-        H = np.clip(H + dt * dH, 0.0, 1.0)
-        D = np.clip(D + dt * dD, 0.0, 1.0)
-        R = np.clip(R + dt * dR, 0.0, 1.0)
+        H = H + dt * (-infect)
+        D = D + dt * (infect - recover)
+        R = R + dt * recover
         H_h[:, k+1] = H;  D_h[:, k+1] = D;  R_h[:, k+1] = R
 
+    _mc.check_simplex(H_h, D_h, R_h, where="simulate_SIR_euler")
     return H, D, R, dict(t=ts, S=H_h, I=D_h, R=R_h)
 
 

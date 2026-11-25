@@ -455,7 +455,7 @@ ml_result = run_SIR_multilayer(
     sir_params  = diff_params,
     adata_st    = adata_st2,
     seed_I      = 0.05,
-    D_inter     = 0.05,
+    D_inter     = 0.01,   # R3: = 0.20 x 0.05 (sqrt(D_D) factor removed)
     t_end       = float(sol_diff.t[-1]),
     n_steps     = 800,
     threshold_I = 0.10,
@@ -487,7 +487,9 @@ sol_ml       = ml_result["sol"]
 net          = ml_result["net"]
 global_index = net["global_index"]
 
-W_ml = sp.csr_matrix(comp["Wc2"])[np.ix_(global_index, global_index)]
+# R3: the exposure matrix actually simulated (blockdiag W~ + W_inter), in the
+# multilayer node order; before R3 the raw Wc2 was used here.
+W_ml = ml_result["E"]
 labels_ml    = net["layer_of_global"]
 beta_ml_vec  = diff_params["beta"][global_index]
 gamma_ml_vec = diff_params["gamma"][global_index]
@@ -541,7 +543,8 @@ if _os.environ.get("QUICK_EXPORT") == "1":
     _pk.dump(dict(comp=comp, params=diff_params, adata=adata_st2),
              open(f"{_out}/model_context.pkl", "wb"))
 
-    raise SystemExit(f"Quick export {_tag} completato")
+    print(f"Quick export {_tag} completato")
+    raise SystemExit(0)   # R3: exit code 0 (a message string makes the exit code 1)
 
 
 
@@ -626,7 +629,8 @@ def step10_sweep_D_inter(comp, diff_params, adata_st2, sol_diff):
     print("STEP 10: D_inter sweep — multilayer front robustness")
     print("="*60)
 
-    D_inter_values = [0.01, 0.02, 0.05, 0.10, 0.20, 0.40]
+    # R3: R2 sweep [0.01..0.40] x 0.20 (sqrt(D_D) factor removed)
+    D_inter_values = [0.002, 0.004, 0.01, 0.02, 0.04, 0.08]
     t_end = float(sol_diff.t[-1])
 
     results_by_D = {}

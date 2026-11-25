@@ -36,6 +36,8 @@ from collections import defaultdict
 import numpy as np
 import pandas as pd
 from scipy.integrate import solve_ivp
+
+import model_core as _mc
 from scipy.stats import spearmanr
 
 import matplotlib
@@ -71,6 +73,8 @@ SPATIAL_SEED: list = []
 CENTRAL_SEED: list = []
 
 _INITIALISED = False
+MACRO_OF: np.ndarray = np.array([])
+REGION_OF: np.ndarray = np.array([])
 
 
 def _check_initialised():
@@ -108,13 +112,17 @@ def init_from_compartments(comp):
     global _INITIALISED
 
     comps2 = list(comp["comps2"])
-    Wc2 = np.asarray(comp["Wc2"])
+    Wc2 = comp["Wc2"]
+    Wc2 = np.asarray(Wc2.toarray() if hasattr(Wc2, "toarray") else Wc2, dtype=float)
+    global MACRO_OF, REGION_OF
     macro_of = comp.get("macro_of", np.array([c.split("_")[0] for c in comps2]))
     region_of = comp.get("region_of", np.array([c.split("_", 1)[1] if "_" in c else "other" for c in comps2]))
     boundary_mask = comp.get("boundary_mask", np.zeros(len(comps2), dtype=bool))
 
     COMPARTMENTS = comps2
     N = len(COMPARTMENTS)
+    MACRO_OF = np.asarray(macro_of)
+    REGION_OF = np.asarray(region_of)
     C_IDX = {c: i for i, c in enumerate(COMPARTMENTS)}
     MACRO_MAP = {c: str(macro_of[i]) for i, c in enumerate(COMPARTMENTS)}
 
@@ -201,15 +209,13 @@ def build_params():
     propagates faster and is cell-type-specific.
     """
     _check_initialised()
-    beta = np.zeros(N); rho = np.zeros(N); DD = np.zeros(N)
-    DS = np.full(N, DS_DEFAULT)  # uniform, NOT per-macro-type
-    for i, c in enumerate(COMPARTMENTS):
-        m = MACRO_MAP[c]
-        b, r, d = BETA_BASE[m], RHO_BASE[m], DD_BASE[m]
-        if "outer_medulla" in c or "boundary" in c:
-            b *= OUTER_MULT
-            r *= GAMMA_OUTER_MULT
-        beta[i] = b; rho[i] = r; DD[i] = d
+    # R3: same parameters as the case study (all zone multipliers, incl.
+    # inner medulla and core, which were missing here before R3).
+    from sir_compartments import build_default_params_SIR
+    p = build_default_params_SIR(np.asarray(COMPARTMENTS), MACRO_OF, REGION_OF)
+    beta, rho = p["beta"], p["gamma"]
+    DS = np.full(N, DS_DEFAULT)                        # ignored since R3
+    DD = np.array([DD_BASE[MACRO_MAP[c]] for c in COMPARTMENTS])  # ignored
     return beta, rho, DS, DD
 
 
@@ -229,36 +235,23 @@ def build_adjacency_from_edges(edge_list):
 # init_from_compartments() to have been called first.
 
 
-def make_ode(W_norm, beta, rho, DS, DD):
-    """Build the ODE RHS for the exposure-driven H/D/R model (Eq. 18-20).
+def make_ode(W_norm, beta, rho, DS=None, DD=None):
+    """RHS of the canonical exposure-driven H/D/R model (R3, model_core).
 
-    DS (D_H) is used ONLY in the dpH equation (healthy-state spatial
-    diffusion, Eq. 18).  DD (D_D) is used ONLY in the dpD equation
-    (damage-signal spatial diffusion, Eq. 19).  This asymmetry — D_H <<
-    D_D — encodes the biological assumption that damage propagates
-    actively and faster than the healthy state.
+    DS / DD are accepted for backward compatibility and ignored: since R3
+    there is no Laplacian transport on the state probabilities.
     """
-    L = np.diag(W_norm.sum(axis=1)) - W_norm
-
-    def f(t, y):
-        pH = np.clip(y[:N], 0, 1)
-        pD = np.clip(y[N:2 * N], 0, 1)
-        lam = W_norm @ pD
-        dpH = -beta * lam * pH - DS * (L @ pH)    # Eq. 18: D_H for healthy
-        dpD = beta * lam * pH - rho * pD - DD * (L @ pD)  # Eq. 19: D_D for damage
-        dpR = -dpH - dpD
-        return np.concatenate([dpH, dpD, dpR])
-    return f
+    _mc.warn_ignored_diffusion(DS, DD, where="sir_section7.make_ode")
+    return _mc.hdr_rhs(np.asarray(W_norm, float), np.asarray(beta, float),
+                       np.asarray(rho, float))
 
 
 def run_sim(W_norm, beta, rho, DS, DD, y0, t_end=60.0, n_pts=601):
-    t_eval = np.linspace(0, t_end, n_pts)
-    sol = solve_ivp(make_ode(W_norm, beta, rho, DS, DD), [0, t_end], y0,
-                    t_eval=t_eval, method="RK45", rtol=1e-7, atol=1e-9)
-    pH_t = np.clip(sol.y[:N, :], 0, 1)
-    pD_t = np.clip(sol.y[N:2 * N, :], 0, 1)
-    pR_t = np.clip(1.0 - pH_t - pD_t, 0, 1)
-    return sol.t, pH_t, pD_t, pR_t
+    """Integrate with the canonical solver (BDF; was RK45 before R3)."""
+    _mc.warn_ignored_diffusion(DS, DD, where="sir_section7.run_sim")
+    tr = _mc.simulate(W_norm, beta, rho, y0, t_end, n_eval=n_pts,
+                      where="sir_section7.run_sim")
+    return tr.t, tr.pH, tr.pD, tr.pR
 
 
 def compute_metrics(t, pD_t, pR_t, threshold=0.10):
@@ -304,15 +297,19 @@ def short(s):
 # SECTION 7.1 — EDGE IMPORTANCE MAPS
 # ═══════════════════════════════════════════════════════════════════════════
 
-def compute_edge_flux(t, pH_t, pD_t, W_raw, beta):
-    """Directed cumulative flux: Φ_{i→j} = β_i · w_{ij} · ∫ pD_i(t) · pH_j(t) dt"""
+def compute_edge_flux(t, pH_t, pD_t, W_raw, beta, W_exp=None):
+    """Directed cumulative flux, as in the dynamics (R3: receiver beta,
+    exposure matrix):  Phi_{i->j} = beta_j * w~_{ji} * int pD_i(t) pH_j(t) dt.
+    `weight` reports the raw edge weight w_ij for reference."""
+    if W_exp is None:
+        W_exp = _mc.row_normalise(W_raw)
     records = []
     for i, src in enumerate(COMPARTMENTS):
         for j, tgt in enumerate(COMPARTMENTS):
             w = W_raw[i, j]
             if w == 0:
                 continue
-            flux_t = beta[i] * w * pD_t[i, :] * pH_t[j, :]
+            flux_t = beta[j] * W_exp[j, i] * pD_t[i, :] * pH_t[j, :]
             flux = np.trapezoid(flux_t, t)
             etype = "intra" if MACRO_MAP[src] == MACRO_MAP[tgt] else "inter"
             records.append(dict(
