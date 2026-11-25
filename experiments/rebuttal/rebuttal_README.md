@@ -26,7 +26,7 @@ Options of `src/main.py` (environment variables; without them the script runs th
 | 8.3 Annotation robustness | `export_annotation_inputs.py` → `run_rctd_mouse.R` (env `rctd`) → `run_c2l.py` (env `c2l`) → `compare_annotations.py` | see block below |
 | 8.4 GSE269622 | `datasetB_lean.py` | `for s in sham hour4 hour12 day2; do python experiments/rebuttal/datasetB_lean.py $s; done` |
 | 8.5 Ligand–receptor comparison | `export_full_transcriptome.py` → `cellchat_full_transcriptome.R` → `commot_full_transcriptome.py` (env `commot`) → `lr_model_comparison.py`; figure: `fig_cellchat_circles.R` | see block below |
-| 8.6 Slide-seq cerebellum | `generality_second_tissue.py` | as documented in the script |
+| 8.6 Slide-seq cerebellum | `slideseq_regen.py` (not in this repository) | — |
 | 8.7 Structural generality | `generality_second_tissue.py` | as documented in the script |
 | 8.8 Temporal validation (GSE182939) | `temporal_validation_FINAL.py` | as documented in the script |
 | 8.9 Applicability: human Visium | `prepare_human_reference.py` → `datasetC_canonical.py` (ingest) → `export_rctd_human.py` → `run_rctd_human.R` (env `rctd`) → `datasetC_canonical.py --annotation rctd` | see block below |

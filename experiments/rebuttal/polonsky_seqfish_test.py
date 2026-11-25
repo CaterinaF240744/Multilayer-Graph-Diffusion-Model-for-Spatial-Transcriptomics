@@ -61,7 +61,7 @@ DATA = "data/polonsky"
 OUT = "results/polonsky_seqfish"
 RADII = [100, 50, 200]          # il primo e' il principale
 MIN_CELLS = 30
-SEED_I, D_INTER, T_END, N_STEPS, THR = 0.05, 0.05, 60.0, 800, 0.10
+SEED_I, D_INTER, T_END, N_STEPS, THR = 0.05, 0.01, 60.0, 800, 0.10   # R3: kappa = 0.01 as V1
 N_PERM = 10000
 MACRO = {
     "PTS1": "PT", "PTS2": "PT", "PTS3": "PT", "Injured PT": "PT",

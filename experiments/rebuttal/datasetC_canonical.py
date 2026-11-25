@@ -62,7 +62,7 @@ MACROS = ("PT", "DCT", "TAL")
 VALID_MACROS = {"PT", "DCT", "TAL", "vascular", "immune", "other"}
 MIN_SPOTS = 10
 N_REF_CELLS = 20000
-SEED_I, D_INTER, T_END, N_STEPS, THR = 0.05, 0.05, 60.0, 800, 0.10   # as V1
+SEED_I, D_INTER, T_END, N_STEPS, THR = 0.05, 0.01, 60.0, 800, 0.10   # R3: kappa = 0.01, as V1
 ANNOT_MARKERS = {"PT": ["LRP2"], "DCT": ["SLC12A3"], "TAL": ["UMOD", "SLC12A1"]}
 INJURY = ["HAVCR1", "LCN2", "VCAM1"]
 
