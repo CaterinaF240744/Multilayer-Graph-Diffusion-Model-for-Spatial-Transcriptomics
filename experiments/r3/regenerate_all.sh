@@ -51,6 +51,7 @@ step 01_main          python experiments/run_main.py
 step 01b_context      env QUICK_EXPORT=1 RUN_TAG=NN python experiments/run_main.py
 step 02_controls      python experiments/run_controls.py          # Sec. 7.4, ex-Fig. 17
 step 05_point3        python experiments/r3/point3_transcompartment.py   # Table 5, pass-through test
+step 06_fig2          python experiments/r3/fig2_hdr_panel.py            # Fig. 2 H/D/R panel (source)
 step 03_sensitivity   python experiments/run_sensitivity.py
 step 04_zoning        env ZONING_NO_SLC12A3=1 QUICK_EXPORT=1 RUN_TAG=no_slc12a3 python experiments/run_main.py
 
