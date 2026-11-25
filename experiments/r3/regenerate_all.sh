@@ -63,6 +63,9 @@ for s in sham hour4 hour12 day2; do
 done
 step 13_temporal      python experiments/rebuttal/temporal_validation_FINAL.py
 step 14_generality    python experiments/rebuttal/generality_second_tissue.py
+if [ -f data/slideseq_cerebellum.h5ad ]; then
+  step 15_slideseq     python experiments/rebuttal/slideseq_r3.py --h5ad data/slideseq_cerebellum.h5ad --tissue cerebellum
+fi
 
 # Pre-specified predictive test (experiments/r3/PREREGISTRATION_predictive_test.md)
 for s in sham hour4 hour12 day2; do
