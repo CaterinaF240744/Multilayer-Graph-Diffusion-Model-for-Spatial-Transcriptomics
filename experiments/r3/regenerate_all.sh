@@ -63,6 +63,12 @@ done
 step 13_temporal      python experiments/rebuttal/temporal_validation_FINAL.py
 step 14_generality    python experiments/rebuttal/generality_second_tissue.py
 
+# Pre-specified predictive test (experiments/r3/PREREGISTRATION_predictive_test.md)
+for s in sham hour4 hour12 day2; do
+  step 15_predictive_$s python experiments/r3/predictive_test_gse269622.py sample "$s"
+done
+step 16_predictive_test python experiments/r3/predictive_test_gse269622.py test
+
 if [ "${WITH_R:-0}" = "1" ]; then
   step 20_annot_export  python experiments/rebuttal/export_annotation_inputs.py
   for b in "$RCTD_RSCRIPT" "$C2L_PYTHON"; do
