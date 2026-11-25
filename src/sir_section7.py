@@ -73,6 +73,8 @@ SPATIAL_SEED: list = []
 CENTRAL_SEED: list = []
 
 _INITIALISED = False
+MACRO_OF: np.ndarray = np.array([])
+REGION_OF: np.ndarray = np.array([])
 
 
 def _check_initialised():
@@ -110,13 +112,17 @@ def init_from_compartments(comp):
     global _INITIALISED
 
     comps2 = list(comp["comps2"])
-    Wc2 = np.asarray(comp["Wc2"])
+    Wc2 = comp["Wc2"]
+    Wc2 = np.asarray(Wc2.toarray() if hasattr(Wc2, "toarray") else Wc2, dtype=float)
+    global MACRO_OF, REGION_OF
     macro_of = comp.get("macro_of", np.array([c.split("_")[0] for c in comps2]))
     region_of = comp.get("region_of", np.array([c.split("_", 1)[1] if "_" in c else "other" for c in comps2]))
     boundary_mask = comp.get("boundary_mask", np.zeros(len(comps2), dtype=bool))
 
     COMPARTMENTS = comps2
     N = len(COMPARTMENTS)
+    MACRO_OF = np.asarray(macro_of)
+    REGION_OF = np.asarray(region_of)
     C_IDX = {c: i for i, c in enumerate(COMPARTMENTS)}
     MACRO_MAP = {c: str(macro_of[i]) for i, c in enumerate(COMPARTMENTS)}
 
@@ -203,15 +209,13 @@ def build_params():
     propagates faster and is cell-type-specific.
     """
     _check_initialised()
-    beta = np.zeros(N); rho = np.zeros(N); DD = np.zeros(N)
-    DS = np.full(N, DS_DEFAULT)  # uniform, NOT per-macro-type
-    for i, c in enumerate(COMPARTMENTS):
-        m = MACRO_MAP[c]
-        b, r, d = BETA_BASE[m], RHO_BASE[m], DD_BASE[m]
-        if "outer_medulla" in c or "boundary" in c:
-            b *= OUTER_MULT
-            r *= GAMMA_OUTER_MULT
-        beta[i] = b; rho[i] = r; DD[i] = d
+    # R3: same parameters as the case study (all zone multipliers, incl.
+    # inner medulla and core, which were missing here before R3).
+    from sir_compartments import build_default_params_SIR
+    p = build_default_params_SIR(np.asarray(COMPARTMENTS), MACRO_OF, REGION_OF)
+    beta, rho = p["beta"], p["gamma"]
+    DS = np.full(N, DS_DEFAULT)                        # ignored since R3
+    DD = np.array([DD_BASE[MACRO_MAP[c]] for c in COMPARTMENTS])  # ignored
     return beta, rho, DS, DD
 
 

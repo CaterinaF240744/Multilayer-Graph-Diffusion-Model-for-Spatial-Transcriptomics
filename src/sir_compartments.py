@@ -152,20 +152,15 @@ def build_default_params_SIR(
 
 def _build_W_tilde(Lc: sp.spmatrix) -> np.ndarray:
     """
-    Ricava W̃ dal Laplaciano normalizzato Lc.
+    Row-normalised exposure matrix W~ = D^-1 W (Eq. 2), recovered exactly
+    from the normalised Laplacian Lc.
 
-    W_raw_{ij} = diag(Lc)_i · δ_{ij} - Lc_{ij}   (adiacenza pesata, off-diag)
-    W̃_{ij}    = W_raw_{ij} / Σ_k W_raw_{ik}       (normalizzazione per riga)
-
-    This is the matrix used to compute the local exposure:
-        λ_i(t) = Σ_j W̃_{ij} · p^D_j(t)   (Eq. 1 dell'articolo)
+    R3: before R3 this row-normalised the off-diagonal of Lc, i.e. of
+    D^-1/2 W D^-1/2, giving w~_ij proportional to w_ij / sqrt(d_j) instead of
+    w_ij / d_i, and Section 7 used yet another (the correct) definition.
+    Now every module uses w~_ij = w_ij / sum_k w_ik.
     """
-    Lc_arr = np.array(sp.csr_matrix(Lc).toarray(), dtype=float)
-    W_raw  = np.diag(np.diag(Lc_arr)) - Lc_arr
-    np.fill_diagonal(W_raw, 0.0)
-    row_sum = W_raw.sum(axis=1, keepdims=True)
-    W_tilde = np.where(row_sum > 1e-12, W_raw / row_sum, 0.0)
-    return W_tilde
+    return _mc.row_normalised_from_normed_laplacian(Lc)
 
 
 # ═══════════════════════════════════════════════════════════════════════════

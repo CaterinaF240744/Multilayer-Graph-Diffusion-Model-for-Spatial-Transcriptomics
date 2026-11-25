@@ -160,10 +160,8 @@ def build_multilayer_network(
         # Row-normalized exposure matrix W̃_l (Eq. 1 of the paper)
         # W̃_l[i,j] = W_raw[i,j] / Σ_k W_raw[i,k],  diagonal = 0
         # Used for the exposure-driven infection term: λ_l = W̃_l @ D_l
-        W_raw_l  = np.diag(np.diag(L_intra.toarray())) - L_intra.toarray()
-        np.fill_diagonal(W_raw_l, 0.0)
-        row_sum_l = W_raw_l.sum(axis=1, keepdims=True)
-        W_tilde_l = np.where(row_sum_l > 1e-12, W_raw_l / row_sum_l, 0.0)
+        # R3: row-normalise W_sub itself (before: the normalised Laplacian)
+        W_tilde_l = _mc.row_normalise(W_sub)
 
         layers[macro] = dict(
             nodes    = node_idx,

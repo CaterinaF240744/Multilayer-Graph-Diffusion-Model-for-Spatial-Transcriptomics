@@ -102,3 +102,30 @@ def test_rebuttal_model(graph):
     tr = m.simulate(np.where(graph["seed"], 0.05, 0.0), t_end=60.0, dt=0.05) \
         if hasattr(m, "simulate") else m.run(np.where(graph["seed"], 0.05, 0.0), t_end=60.0, dt=0.05)
     _assert_simplex(tr["pH"], tr["pD"], tr["pR"])
+
+
+def test_exposure_from_normed_laplacian_is_row_normalised():
+    """R3: W~ from the normalised Laplacian equals D^-1 W (Eq. 2), also with
+    several components and an isolated node."""
+    rng = np.random.default_rng(3)
+    W = np.zeros((9, 9))
+    W[:4, :4] = rng.uniform(size=(4, 4)); W[4:8, 4:8] = rng.uniform(size=(4, 4))
+    W = (W + W.T) / 2; np.fill_diagonal(W, 0)      # node 8 isolated
+    L = laplacian(W, normed=True)
+    np.testing.assert_allclose(mc.row_normalised_from_normed_laplacian(L),
+                               mc.row_normalise(W), atol=1e-12)
+
+
+def test_section7_uses_case_study_params_and_sparse_W():
+    import sir_section7 as s7
+    from sir_compartments import build_default_params_SIR
+    comps = np.array(["PT_outer_medulla", "PT_inner_medulla", "DCT_core", "TAL_cortex"])
+    macro = np.array(["PT", "PT", "DCT", "TAL"])
+    region = np.array(["outer_medulla", "inner_medulla", "core", "cortex"])
+    W = sp.csr_matrix(np.array([[0, 1, 0, 1], [1, 0, 1, 0], [0, 1, 0, 1], [1, 0, 1, 0.]]))
+    s7.init_from_compartments(dict(Wc2=W, comps2=comps, macro_of=macro, region_of=region,
+                                   boundary_mask=np.array([1, 0, 0, 0], bool)))
+    beta, rho, _, _ = s7.build_params()
+    ref = build_default_params_SIR(comps, macro, region)
+    np.testing.assert_allclose(beta, ref["beta"]); np.testing.assert_allclose(rho, ref["gamma"])
+    assert abs(beta[1] - 0.40 * 0.75) < 1e-12        # inner-medulla multiplier applied

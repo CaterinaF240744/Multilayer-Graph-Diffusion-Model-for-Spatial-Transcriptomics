@@ -62,6 +62,34 @@ def row_normalise(W) -> np.ndarray:
     return np.where(rs > 1e-12, W / np.where(rs > 1e-12, rs, 1.0), 0.0)
 
 
+def row_normalised_from_normed_laplacian(L) -> np.ndarray:
+    """Exact D^-1 W from a symmetrically normalised Laplacian L = I - D^-1/2 W D^-1/2.
+
+    A = D^-1/2 W D^-1/2 has sqrt(d) as eigenvector with eigenvalue 1 on each
+    connected component, so D^-1 W = diag(1/v) A diag(v) with v the Perron
+    vector of the component (the scale of v cancels). Isolated nodes get a
+    zero row. This makes the exposure of Eq. (2) identical whether a module
+    receives the adjacency W or its normalised Laplacian.
+    """
+    from scipy.sparse.csgraph import connected_components
+    L = np.asarray(sp.csr_matrix(L).toarray() if sp.issparse(L) else L,
+                   dtype=float)
+    A = -L.copy()
+    np.fill_diagonal(A, 0.0)
+    A = np.clip((A + A.T) / 2, 0.0, None)
+    n_comp, lab = connected_components(sp.csr_matrix(A > 0), directed=False)
+    Wt = np.zeros_like(A)
+    for c in range(n_comp):
+        idx = np.where(lab == c)[0]
+        if len(idx) < 2:
+            continue
+        Ac = A[np.ix_(idx, idx)]
+        vals, vecs = np.linalg.eigh(Ac)
+        v = np.abs(vecs[:, -1])
+        Wt[np.ix_(idx, idx)] = Ac * v[None, :] / v[:, None]
+    return Wt
+
+
 def adjacency_from_laplacian(L) -> np.ndarray:
     """Recover the (off-diagonal) weighted adjacency from a Laplacian."""
     L = np.asarray(sp.csr_matrix(L).toarray() if sp.issparse(L) else L,

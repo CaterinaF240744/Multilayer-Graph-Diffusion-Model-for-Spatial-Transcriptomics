@@ -275,11 +275,7 @@ def simulate_SIRD_drug(
 
     # W̃_{ij} per il calcolo di λ_i = Σ_j w̃_{ij} · D_j  (Eq. 1)
     # Ricaviamo l'adiacenza pesata dal Laplaciano: W = diag(L) - L
-    Lc_arr = Lc.toarray()
-    W_raw  = np.diag(np.diag(Lc_arr)) - Lc_arr
-    np.fill_diagonal(W_raw, 0.0)
-    row_sum = W_raw.sum(axis=1, keepdims=True)
-    W_tilde = np.where(row_sum > 1e-12, W_raw / row_sum, 0.0)
+    W_tilde = _mc.row_normalised_from_normed_laplacian(Lc)   # R3: exact D^-1 W
 
     y0 = np.concatenate([
         np.asarray(S0,   dtype=float),
